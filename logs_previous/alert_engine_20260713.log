@@ -1,0 +1,126 @@
+2026-07-13 21:16:56 | INFO    | ==============================================================================
+2026-07-13 21:16:56 | INFO    | Alert engine starting | trading_date=20260713
+2026-07-13 21:16:56 | INFO    | Daily log file | path=C:\Users\Praveen Yadav\Projects\alert-engine\logs\alert_engine_20260713.log
+2026-07-13 21:16:56 | WARNING | MOCK CANDLE MODE ACTIVE | candles are mocked; instrument master will be downloaded
+2026-07-13 21:16:56 | INFO    | Candle source: mock file C:\Users\Praveen Yadav\Projects\alert-engine\examples\mock_candles_by_symbol.json
+2026-07-13 21:16:56 | INFO    | Instrument source: mock file examples\mock_instruments.json
+2026-07-13 21:16:56 | INFO    | Loading watchlist: examples\mock_watchlist_single.csv
+2026-07-13 21:16:56 | INFO    | Initialization complete | active=1 rejected=0 unresolved=0
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T09:30:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:15:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T09:45:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:30:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T10:00:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:45:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T10:15:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T10:00:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T10:30:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T10:15:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T10:45:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T10:30:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T11:00:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T10:45:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T11:15:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T11:00:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T11:30:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T11:15:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T11:45:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T11:30:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T12:00:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T11:45:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock clock advanced | now=2026-07-13T12:15:00+05:30
+2026-07-13 21:16:56 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:16:56 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T12:00:00+05:30 | limit=99.95 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:16:56 | INFO    | Mock candle replay complete
+2026-07-13 21:16:56 | INFO    | Engine finished normally | evaluated=12 | alerts=0
+2026-07-13 21:17:23 | INFO    | ==============================================================================
+2026-07-13 21:17:23 | INFO    | Alert engine starting | trading_date=20260713
+2026-07-13 21:17:23 | INFO    | Daily log file | path=C:\Users\Praveen Yadav\Projects\alert-engine\logs\alert_engine_20260713.log
+2026-07-13 21:17:23 | INFO    | Error-only log file | path=C:\Users\Praveen Yadav\Projects\alert-engine\logs\alert_engine_errors_20260713.log
+2026-07-13 21:17:23 | WARNING | MOCK CANDLE MODE ACTIVE | candles are mocked; instrument master will be downloaded
+2026-07-13 21:17:23 | INFO    | Candle source: mock file C:\Users\Praveen Yadav\Projects\alert-engine\examples\mock_candles_by_symbol.json
+2026-07-13 21:17:23 | INFO    | Instrument source: mock file examples\mock_instruments.json
+2026-07-13 21:17:23 | INFO    | Loading watchlist: examples\mock_watchlist.csv
+2026-07-13 21:17:23 | INFO    | Initialization complete | active=1 rejected=0 unresolved=16
+2026-07-13 21:17:23 | WARNING | Unresolved symbol CARTRADE | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol TVSMOTOR | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol INDHOTEL | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol NH | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol MANKIND | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol HOMEFIRST | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol REDINGTON | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol KAJARIACER | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol OBEROIRLTY | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol 3MINDIA | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol ALKEM | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol ENDURANCE | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol PRESTIGE | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol EXIDEIND | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol INDUSINDBK | no matching NSE equity instrument
+2026-07-13 21:17:23 | WARNING | Unresolved symbol JINDALSAW | no matching NSE equity instrument
+2026-07-13 21:17:23 | INFO    | Mock clock advanced | now=2026-07-13T09:30:00+05:30
+2026-07-13 21:17:23 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:17:23 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:15:00+05:30 | limit=100.50 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:17:23 | INFO    | Mock clock advanced | now=2026-07-13T09:45:00+05:30
+2026-07-13 21:17:23 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:17:23 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:30:00+05:30 | limit=100.50 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 21:17:23 | INFO    | Mock clock advanced | now=2026-07-13T10:00:00+05:30
+2026-07-13 21:17:23 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 21:17:23 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:45:00+05:30 | limit=100.50 | outcome=ENTER | reason=candle low reached limit price
+2026-07-13 21:17:23 | INFO    | ALERT generated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | limit=100.50 | assumed_entry=100.50 | trigger_candle=2026-07-13T09:45:00+05:30
+2026-07-13 21:17:23 | INFO    | Mock candle replay complete
+2026-07-13 21:17:23 | INFO    | Engine finished normally | evaluated=3 | alerts=1
+2026-07-13 23:33:27 | INFO    | ==============================================================================
+2026-07-13 23:33:27 | INFO    | Alert engine starting | trading_date=20260713
+2026-07-13 23:33:27 | INFO    | Daily log file | path=C:\Users\Praveen Yadav\Projects\alert-engine\logs\alert_engine_20260713.log
+2026-07-13 23:33:27 | INFO    | Error-only log file | path=C:\Users\Praveen Yadav\Projects\alert-engine\logs\alert_engine_errors_20260713.log
+2026-07-13 23:33:27 | WARNING | MOCK CANDLE MODE ACTIVE | candles are mocked; instrument master will be downloaded
+2026-07-13 23:33:27 | INFO    | Candle source: mock file C:\Users\Praveen Yadav\Projects\alert-engine\examples\mock_candles_by_symbol.json
+2026-07-13 23:33:27 | INFO    | Candle CSV | path=C:\Users\Praveen Yadav\Projects\alert-engine\output\candles_20260713.csv
+2026-07-13 23:33:27 | INFO    | Alert CSV | path=C:\Users\Praveen Yadav\Projects\alert-engine\output\execution_alerts_20260713.csv
+2026-07-13 23:33:27 | INFO    | Instrument source: mock file examples\mock_instruments.json
+2026-07-13 23:33:27 | INFO    | Loading watchlist: examples\mock_watchlist.csv
+2026-07-13 23:33:27 | INFO    | Initialization complete | active=1 rejected=0 unresolved=16
+2026-07-13 23:33:27 | WARNING | Unresolved symbol CARTRADE | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol TVSMOTOR | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol INDHOTEL | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol NH | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol MANKIND | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol HOMEFIRST | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol REDINGTON | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol KAJARIACER | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol OBEROIRLTY | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol 3MINDIA | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol ALKEM | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol ENDURANCE | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol PRESTIGE | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol EXIDEIND | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol INDUSINDBK | no matching NSE equity instrument
+2026-07-13 23:33:27 | WARNING | Unresolved symbol JINDALSAW | no matching NSE equity instrument
+2026-07-13 23:33:27 | INFO    | Mock clock advanced | now=2026-07-13T09:30:00+05:30
+2026-07-13 23:33:27 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 23:33:27 | INFO    | Candle CSV appended | symbol=MOTILALOFS | candle=2026-07-13T09:15:00+05:30 | path=C:\Users\Praveen Yadav\Projects\alert-engine\output\candles_20260713.csv
+2026-07-13 23:33:27 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:15:00+05:30 | limit=100.50 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 23:33:27 | INFO    | Mock clock advanced | now=2026-07-13T09:45:00+05:30
+2026-07-13 23:33:27 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 23:33:27 | INFO    | Candle CSV appended | symbol=MOTILALOFS | candle=2026-07-13T09:30:00+05:30 | path=C:\Users\Praveen Yadav\Projects\alert-engine\output\candles_20260713.csv
+2026-07-13 23:33:27 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:30:00+05:30 | limit=100.50 | outcome=WAIT | reason=candle low is above limit price
+2026-07-13 23:33:27 | INFO    | Mock clock advanced | now=2026-07-13T10:00:00+05:30
+2026-07-13 23:33:27 | INFO    | Loading candles | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | instrument=NSE_EQ|MOCK_MOTILALOFS
+2026-07-13 23:33:27 | INFO    | Candle CSV appended | symbol=MOTILALOFS | candle=2026-07-13T09:45:00+05:30 | path=C:\Users\Praveen Yadav\Projects\alert-engine\output\candles_20260713.csv
+2026-07-13 23:33:27 | INFO    | Signal evaluated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | candle=2026-07-13T09:45:00+05:30 | limit=100.50 | outcome=ENTER | reason=candle low reached limit price
+2026-07-13 23:33:27 | INFO    | Alert CSV appended | path=C:\Users\Praveen Yadav\Projects\alert-engine\output\execution_alerts_20260713.csv
+2026-07-13 23:33:27 | INFO    | ALERT generated | strategy=base_recovery_strategy_v1 | symbol=MOTILALOFS | limit=100.50 | assumed_entry=100.50 | trigger_candle=2026-07-13T09:45:00+05:30
+2026-07-13 23:33:27 | INFO    | Watch stopped | reason=all_signals_alerted | evaluated=3 | alerts=1 | remaining=0
+2026-07-13 23:33:27 | INFO    | Engine finished normally | evaluated=3 | alerts=1

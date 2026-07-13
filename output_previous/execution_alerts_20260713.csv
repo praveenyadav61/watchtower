@@ -1,0 +1,2 @@
+trading_date,strategy_id,symbol,side,alert_time,limit_price,assumed_entry_price,trigger_candle,final_score,rank,status
+20260713,base_recovery_strategy_v1,MOTILALOFS,BUY,2026-07-13T23:33:27.984664+05:30,100.50,100.50,2026-07-13T09:45:00+05:30,,1,ENTERED
