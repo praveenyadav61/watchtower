@@ -438,6 +438,10 @@ Before 09:30  Initialization complete; engine waits
 15:00          Evaluate completed 14:45 candle and stop
 ```
 
+The actual API cycle starts five seconds after each boundary (for example,
+09:30:05, 09:45:05, and 10:00:05 IST) so a candle has time to appear in the
+provider response. Symbols are requested sequentially within that cycle.
+
 ## 7. Monitor during market hours
 
 - [ ] Keep the computer powered and connected.

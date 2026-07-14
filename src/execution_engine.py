@@ -28,6 +28,7 @@ from upstox_candles import fetch_candles, latest_completed_candle, load_mock_can
 LOGGER = logging.getLogger("alert_engine")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MOCK_CANDLES = PROJECT_ROOT / "examples" / "mock_candles_by_symbol.json"
+CANDLE_FETCH_DELAY_SECONDS = 5
 
 
 def configure_logging(trading_date: str, log_directory: Path) -> tuple[Path, Path]:
@@ -426,9 +427,6 @@ def watch(
                 if now.strftime("%Y%m%d") != trading_date:
                     raise ValueError("live watch trading date must be today in Asia/Kolkata")
                 cutoff = now.replace(hour=15, minute=0, second=0, microsecond=0)
-                if now > cutoff:
-                    shutdown_reason = "market_cutoff"
-                    break
                 if now.hour > 9 or (now.hour == 9 and now.minute >= 30):
                     evaluations, alerts = evaluate_cycle(
                         result, candle_loader, now, alerted, processed, output_store
@@ -438,8 +436,13 @@ def watch(
                     if len(alerted) == len(result.active_signals):
                         shutdown_reason = "all_signals_alerted"
                         break
+                    if now >= cutoff:
+                        shutdown_reason = "market_cutoff"
+                        break
                 next_minute = ((now.minute // 15) + 1) * 15
-                next_check = now.replace(second=2, microsecond=0)
+                next_check = now.replace(
+                    second=CANDLE_FETCH_DELAY_SECONDS, microsecond=0
+                )
                 if next_minute == 60:
                     next_check = next_check.replace(minute=0) + timedelta(hours=1)
                 else:
