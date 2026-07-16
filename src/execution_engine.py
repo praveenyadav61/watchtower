@@ -22,6 +22,7 @@ from src.daily_initialization import (
     current_business_date,
     initialize,
 )
+from src.slack_notification import send_slack_message
 from upstox_candles import fetch_candles, latest_completed_candle, load_mock_candles
 
 
@@ -29,6 +30,50 @@ LOGGER = logging.getLogger("alert_engine")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MOCK_CANDLES = PROJECT_ROOT / "examples" / "mock_candles_by_symbol.json"
 CANDLE_FETCH_DELAY_SECONDS = 5
+
+
+def send_slack_execution_alert(alert: ExecutionAlert) -> bool:
+    """Post one final BUY alert when a Slack webhook is configured."""
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return False
+    send_slack_message(
+        webhook_url,
+        (
+            "BUY EXECUTION ALERT\n"
+            f"Trading date: {alert.trading_date}\n"
+            f"Strategy: {alert.strategy_id}\n"
+            f"Symbol: {alert.symbol}\n"
+            f"Side: {alert.side}\n"
+            f"Limit price: {alert.limit_price}\n"
+            f"Assumed entry price: {alert.assumed_entry_price}\n"
+            f"Trigger candle: {alert.trigger_candle}\n"
+            f"Rank: {alert.rank}\n"
+            f"Status: {alert.status}"
+        ),
+        timeout=5,
+    )
+    return True
+
+
+def send_slack_initialization(result: InitializationResult) -> bool:
+    """Post one successful initialization summary when Slack is configured."""
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return False
+    send_slack_message(
+        webhook_url,
+        (
+            "ALERT ENGINE INITIALIZED\n"
+            f"Trading date: {result.trading_date}\n"
+            f"Status: {'READY' if result.ready else 'NOT READY'}\n"
+            f"Active signals: {len(result.active_signals)}\n"
+            f"Rejected rows: {len(result.rejected_rows)}\n"
+            f"Unresolved symbols: {len(result.unresolved_symbols)}"
+        ),
+        timeout=5,
+    )
+    return True
 
 
 def configure_logging(trading_date: str, log_directory: Path) -> tuple[Path, Path]:
@@ -272,6 +317,23 @@ def log_initialization(result: InitializationResult) -> None:
         LOGGER.warning("Unresolved symbol %s | %s", item.symbol, item.reason)
 
 
+def report_initialization(result: InitializationResult) -> None:
+    """Log initialization and send its optional Slack summary safely."""
+    log_initialization(result)
+    try:
+        if send_slack_initialization(result):
+            LOGGER.info(
+                "Slack initialization notification sent | trading_date=%s",
+                result.trading_date,
+            )
+    except Exception:
+        LOGGER.exception(
+            "Slack initialization notification failed; startup continues | "
+            "trading_date=%s",
+            result.trading_date,
+        )
+
+
 def evaluate_cycle(
     result: InitializationResult,
     candle_loader: Callable[[str, str], list[list[Any]]],
@@ -345,6 +407,20 @@ def evaluate_cycle(
                     alert.trigger_candle,
                 )
                 print_alert(alert)
+                try:
+                    if send_slack_execution_alert(alert):
+                        LOGGER.info(
+                            "Slack BUY alert sent | strategy=%s | symbol=%s",
+                            alert.strategy_id,
+                            alert.symbol,
+                        )
+                except Exception:
+                    LOGGER.exception(
+                        "Slack BUY alert failed; engine continues | strategy=%s | "
+                        "symbol=%s",
+                        alert.strategy_id,
+                        alert.symbol,
+                    )
             else:
                 print(f"{item.symbol}: {item.outcome} - {item.reason}")
         except Exception:
@@ -368,7 +444,7 @@ def run(
 ) -> tuple[list[Evaluation], list[ExecutionAlert]]:
     LOGGER.info("Loading watchlist: %s", watchlist)
     result = initialize(watchlist, trading_date, instruments)
-    log_initialization(result)
+    report_initialization(result)
     alerted: set[tuple[str, str]] = set()
     reference_time = now or datetime.now(MARKET_TIMEZONE)
     evaluations, alerts = evaluate_cycle(
@@ -389,7 +465,7 @@ def watch(
 ) -> tuple[list[Evaluation], list[ExecutionAlert]]:
     LOGGER.info("Loading watchlist: %s", watchlist)
     result = initialize(watchlist, trading_date, instruments)
-    log_initialization(result)
+    report_initialization(result)
     alerted: set[tuple[str, str]] = set()
     processed: set[tuple[str, str, str]] = set()
     all_evaluations: list[Evaluation] = []
@@ -502,6 +578,8 @@ def main() -> int:
     LOGGER.info("Alert engine starting | trading_date=%s", trading_date)
     LOGGER.info("Daily log file | path=%s", log_path)
     LOGGER.info("Error-only log file | path=%s", error_log_path)
+    if os.environ.get("SLACK_WEBHOOK_URL", "").strip():
+        LOGGER.info("Slack initialization and BUY alert notifications active")
     if args.mock and args.mock_candles:
         parser.error("--mock already supplies its own candle replay file")
 

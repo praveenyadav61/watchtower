@@ -11,6 +11,8 @@ from src.execution_engine import (
     build_alert,
     evaluate,
     evaluate_cycle,
+    send_slack_execution_alert,
+    send_slack_initialization,
     watch,
 )
 
@@ -30,6 +32,74 @@ def instrument(limit_price="99.95"):
 
 
 class ExecutionEngineTests(unittest.TestCase):
+    @patch("src.execution_engine.send_slack_message")
+    @patch.dict(
+        "os.environ",
+        {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/T/B/SECRET"},
+        clear=False,
+    )
+    def test_slack_initialization_contains_summary(self, mock_send):
+        result = InitializationResult("20260716", [instrument()], [], [])
+
+        sent = send_slack_initialization(result)
+
+        self.assertTrue(sent)
+        message = mock_send.call_args.args[1]
+        self.assertIn("ALERT ENGINE INITIALIZED", message)
+        self.assertIn("Trading date: 20260716", message)
+        self.assertIn("Status: READY", message)
+        self.assertIn("Active signals: 1", message)
+
+    @patch("src.execution_engine.send_slack_message")
+    @patch.dict(
+        "os.environ",
+        {
+            "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/T/B/SECRET",
+        },
+        clear=False,
+    )
+    def test_slack_message_contains_final_buy_alert(self, mock_send):
+        candle = ["2026-07-10T09:30:00+05:30", 101, 102, 99.5, 100.25, 1000, 0]
+        alert = build_alert(instrument(), candle, evaluate(instrument(), candle))
+        sent = send_slack_execution_alert(alert)
+
+        self.assertTrue(sent)
+        message = mock_send.call_args.args[1]
+        self.assertIn("BUY EXECUTION ALERT", message)
+        self.assertIn("Symbol: ABC", message)
+        self.assertIn("Limit price: 99.95", message)
+        self.assertIn("Status: ENTERED", message)
+
+    @patch("src.execution_engine.send_slack_message")
+    @patch.dict("os.environ", {}, clear=True)
+    def test_slack_buy_alert_is_disabled_without_webhook(self, mock_send):
+        candle = ["2026-07-10T09:30:00+05:30", 101, 102, 99.5, 100.25, 1000, 0]
+        alert = build_alert(instrument(), candle, evaluate(instrument(), candle))
+        sent = send_slack_execution_alert(alert)
+
+        self.assertFalse(sent)
+        mock_send.assert_not_called()
+
+    @patch("src.execution_engine.send_slack_message")
+    @patch.dict(
+        "os.environ",
+        {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/T/B/SECRET"},
+        clear=False,
+    )
+    def test_wait_evaluation_does_not_send_slack(self, mock_send):
+        result = InitializationResult("20260710", [instrument()], [], [])
+        candle = ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1000, 0]
+
+        evaluate_cycle(
+            result,
+            lambda _key, _symbol: [candle],
+            datetime.fromisoformat("2026-07-10T09:45:00+05:30"),
+            set(),
+            set(),
+        )
+
+        mock_send.assert_not_called()
+
     def test_enters_at_limit_when_candle_opens_above_limit(self):
         result = evaluate(
             instrument(),

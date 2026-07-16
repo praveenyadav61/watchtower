@@ -23,6 +23,11 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 powershell -ExecutionPolicy Bypass -File .\run_live.ps1
 ```
 
+On Windows, `run_live.ps1` prevents automatic system sleep for the lifetime of
+the engine and restores the normal sleep policy when the engine exits. It does
+not prevent manual sleep or lid-close sleep, so keep the laptop plugged in with
+the lid open. The display is still allowed to turn off.
+
 macOS Terminal:
 
 ```bash
@@ -161,3 +166,18 @@ ENTER alert is appended to `output/execution_alerts_YYYYMMDD.csv` before it is
 printed. Every append is flushed immediately. Watch mode handles `Ctrl+C`
 cleanly and reports its shutdown reason plus evaluated, alert, and remaining
 signal counts.
+
+### Prepare a symbol-only watchlist
+
+Before market start, populate a CSV containing only a `symbol` column from the
+latest Upstox daily close before the trading date. The command applies a 3%
+discount by default and replaces the input only after every symbol succeeds:
+
+```powershell
+$env:UPSTOX_ACCESS_TOKEN = "..."
+.\.venv\Scripts\python.exe -m src.prepare_watchlist `
+  .\watchlist_20260716.csv --trading-date 20260716
+```
+
+The completed file includes `previous_close`, `limit_discount_percent`, and the
+engine-required `limit_price`, along with all other required signal columns.

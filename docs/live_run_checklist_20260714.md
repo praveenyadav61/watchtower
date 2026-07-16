@@ -275,7 +275,9 @@ python -m pip install -r requirements.txt
 python -m unittest discover -s tests
 ```
 
-- [ ] Prevent Windows sleep/hibernate during market hours.
+- [x] `run_live.ps1` prevents automatic Windows sleep while the engine runs.
+- [ ] Keep the Windows laptop plugged in and lid open; the script cannot block
+      manual sleep, hibernation, shutdown, or lid-close sleep.
 - [ ] Confirm the internet connection is stable.
 - [ ] Confirm the system clock is synchronized. Market logic uses
       `Asia/Kolkata`, but an accurate system clock is still required.
