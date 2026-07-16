@@ -11,6 +11,7 @@ class WatchlistLoaderTests(unittest.TestCase):
             "symbol": " reliance ",
             "entry_decision": "buy",
             "rank": "1",
+            "limit_price": "100",
             "regime": "correction",
         }]
 
@@ -37,12 +38,40 @@ class WatchlistLoaderTests(unittest.TestCase):
         self.assertIn("positive integer", rejected[3].reason)
 
     def test_rejects_duplicate_strategy_and_symbol(self):
-        row = {"trading_date": "20260710", "strategy_id": "s1", "symbol": "ABC", "entry_decision": "BUY", "rank": "1"}
+        row = {"trading_date": "20260710", "strategy_id": "s1", "symbol": "ABC", "entry_decision": "BUY", "rank": "1", "limit_price": "100"}
 
         accepted, rejected = validate_rows([row, row])
 
         self.assertEqual(1, len(accepted))
         self.assertEqual("duplicate strategy_id + symbol", rejected[0].reason)
+
+    def test_accepts_minimal_volume_row_and_applies_defaults(self):
+        accepted, rejected = validate_rows(
+            [{"symbol": " reliance ", "volume_threshold": "500000"}],
+            "20260717",
+        )
+
+        self.assertEqual([], rejected)
+        signal = accepted[0]
+        self.assertEqual("20260717", signal.trading_date)
+        self.assertEqual("volume_threshold_v1", signal.strategy_id)
+        self.assertEqual("RELIANCE", signal.symbol)
+        self.assertEqual("BUY", signal.entry_decision)
+        self.assertEqual(1, signal.rank)
+        self.assertEqual("500000", signal.volume_threshold)
+
+    def test_rejects_row_with_both_price_and_volume_thresholds(self):
+        accepted, rejected = validate_rows(
+            [{
+                "symbol": "ABC",
+                "limit_price": "100",
+                "volume_threshold": "500000",
+            }],
+            "20260717",
+        )
+
+        self.assertEqual([], accepted)
+        self.assertIn("exactly one", rejected[0].reason)
 
     def test_validates_real_calendar_date(self):
         self.assertTrue(valid_business_date("20260710"))

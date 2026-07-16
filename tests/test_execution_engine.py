@@ -31,6 +31,21 @@ def instrument(limit_price="99.95"):
     return ResolvedInstrument(signal, "NSE_EQ|ABC", 5)
 
 
+def volume_instrument(volume_threshold="1000"):
+    signal = AcceptedSignal(
+        2,
+        "20260710",
+        "volume_threshold_v1",
+        "ABC",
+        "BUY",
+        1,
+        "",
+        "",
+        volume_threshold,
+    )
+    return ResolvedInstrument(signal, "NSE_EQ|ABC", 5)
+
+
 class ExecutionEngineTests(unittest.TestCase):
     @patch("src.execution_engine.send_slack_message")
     @patch.dict(
@@ -123,6 +138,43 @@ class ExecutionEngineTests(unittest.TestCase):
         self.assertEqual("WAIT", result.outcome)
         self.assertIsNone(result.assumed_entry_price)
 
+    def test_volume_threshold_triggers_on_completed_candle_volume(self):
+        result = evaluate(
+            volume_instrument("1000"),
+            ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1250, 0],
+        )
+
+        self.assertEqual("ENTER", result.outcome)
+        self.assertEqual("VOLUME", result.alert_type)
+        self.assertEqual(Decimal("1000"), result.volume_threshold)
+        self.assertEqual(Decimal("1250"), result.candle_volume)
+
+    def test_volume_threshold_waits_below_threshold(self):
+        result = evaluate(
+            volume_instrument("1000"),
+            ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 999, 0],
+        )
+
+        self.assertEqual("WAIT", result.outcome)
+        self.assertEqual("VOLUME", result.alert_type)
+
+    @patch("src.execution_engine.send_slack_message")
+    @patch.dict(
+        "os.environ",
+        {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/T/B/SECRET"},
+        clear=False,
+    )
+    def test_slack_volume_alert_contains_threshold_and_actual_volume(self, mock_send):
+        candle = ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1250, 0]
+        item = volume_instrument("1000")
+        alert = build_alert(item, candle, evaluate(item, candle))
+
+        self.assertTrue(send_slack_execution_alert(alert))
+        message = mock_send.call_args.args[1]
+        self.assertIn("Alert type: VOLUME", message)
+        self.assertIn("Volume threshold: 1000", message)
+        self.assertIn("Candle volume: 1250", message)
+
     def test_rejects_missing_limit_price(self):
         with self.assertRaisesRegex(ValueError, "invalid limit price"):
             evaluate(
@@ -177,6 +229,24 @@ class ExecutionEngineTests(unittest.TestCase):
         with store.alert_path.open(newline="", encoding="utf-8") as handle:
             rows = list(csv.DictReader(handle))
         self.assertEqual("ABC", rows[0]["symbol"])
+
+    def test_volume_alert_csv_contains_volume_details(self):
+        candle = ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1250, 0]
+        item = volume_instrument("1000")
+        alert = build_alert(item, candle, evaluate(item, candle))
+        directory = Path("output/test_artifacts")
+        store = DailyOutputStore(directory, "20990102")
+        store.alert_path.unlink(missing_ok=True)
+        store = DailyOutputStore(directory, "20990102")
+        self.addCleanup(store.alert_path.unlink, missing_ok=True)
+
+        store.record_alert(alert)
+
+        with store.alert_path.open(newline="", encoding="utf-8") as handle:
+            row = next(csv.DictReader(handle))
+        self.assertEqual("VOLUME", row["alert_type"])
+        self.assertEqual("1000", row["volume_threshold"])
+        self.assertEqual("1250", row["candle_volume"])
 
     @patch("src.execution_engine.time.sleep", side_effect=KeyboardInterrupt)
     def test_watch_handles_ctrl_c_and_returns_counts(self, _mock_sleep):
