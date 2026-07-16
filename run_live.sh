@@ -3,7 +3,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-WATCHLIST="${1:-./watchlist.csv}"
+if [[ $# -ge 1 ]]; then
+  WATCHLIST="$1"
+elif [[ -f "./watchlist_$(date +%Y%m%d).csv" ]]; then
+  WATCHLIST="./watchlist_$(date +%Y%m%d).csv"
+else
+  WATCHLIST="./watchlist.csv"
+fi
 if [[ ! -x .venv/bin/python ]]; then
   echo "Virtual environment is missing. Run: bash ./setup.sh" >&2
   exit 1

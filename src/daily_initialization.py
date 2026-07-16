@@ -16,14 +16,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 
-REQUIRED_COLUMNS = {
-    "trading_date",
-    "strategy_id",
-    "symbol",
-    "entry_decision",
-    "rank",
-    "limit_price",
-}
+REQUIRED_COLUMNS = {"symbol"}
 NSE_INSTRUMENTS_URL = (
     "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
 )
@@ -40,6 +33,7 @@ class AcceptedSignal:
     rank: int
     final_score: str = ""
     limit_price: str = ""
+    volume_threshold: str = ""
 
 
 @dataclass(frozen=True)
@@ -95,13 +89,17 @@ def validate_rows(
     seen: set[tuple[str, str]] = set()
 
     for line_number, row in enumerate(rows, start=2):
-        trading_date = (row.get("trading_date") or "").strip()
-        strategy_id = (row.get("strategy_id") or "").strip()
-        symbol = (row.get("symbol") or "").strip().upper()
-        decision = (row.get("entry_decision") or "").strip().upper()
-        rank_text = (row.get("rank") or "").strip()
-        final_score = (row.get("final_score") or "").strip()
         limit_price = (row.get("limit_price") or "").strip()
+        volume_threshold = (row.get("volume_threshold") or "").strip()
+        default_strategy = (
+            "volume_threshold_v1" if volume_threshold else "price_threshold_v1"
+        )
+        trading_date = (row.get("trading_date") or expected_date or current_business_date()).strip()
+        strategy_id = (row.get("strategy_id") or default_strategy).strip()
+        symbol = (row.get("symbol") or "").strip().upper()
+        decision = (row.get("entry_decision") or "BUY").strip().upper()
+        rank_text = (row.get("rank") or str(line_number - 1)).strip()
+        final_score = (row.get("final_score") or "").strip()
 
         if not valid_business_date(trading_date):
             rejected.append(RejectedRow(line_number, "invalid trading_date; expected YYYYMMDD"))
@@ -125,12 +123,32 @@ def validate_rows(
         except ValueError:
             rejected.append(RejectedRow(line_number, "rank must be a positive integer"))
             continue
-        if "limit_price" in row:
+        if bool(limit_price) == bool(volume_threshold):
+            rejected.append(
+                RejectedRow(
+                    line_number,
+                    "provide exactly one of limit_price or volume_threshold",
+                )
+            )
+            continue
+        if limit_price:
             try:
                 if float(limit_price) <= 0:
                     raise ValueError
             except ValueError:
                 rejected.append(RejectedRow(line_number, "limit_price must be a positive number"))
+                continue
+        if volume_threshold:
+            try:
+                if float(volume_threshold) <= 0:
+                    raise ValueError
+            except ValueError:
+                rejected.append(
+                    RejectedRow(
+                        line_number,
+                        "volume_threshold must be a positive number",
+                    )
+                )
                 continue
 
         key = (strategy_id, symbol)
@@ -148,6 +166,7 @@ def validate_rows(
                 rank,
                 final_score,
                 limit_price,
+                volume_threshold,
             )
         )
 
@@ -167,6 +186,13 @@ def load_watchlist(
                 raise ValueError(
                     "watchlist is missing required columns: "
                     + ", ".join(sorted(missing))
+                )
+            threshold_columns = {"limit_price", "volume_threshold"} & set(
+                reader.fieldnames or []
+            )
+            if not threshold_columns:
+                raise ValueError(
+                    "watchlist must contain limit_price or volume_threshold"
                 )
             rows = list(reader)
     except OSError as exc:

@@ -37,22 +37,36 @@ def send_slack_execution_alert(alert: ExecutionAlert) -> bool:
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
     if not webhook_url:
         return False
-    send_slack_message(
-        webhook_url,
-        (
-            "BUY EXECUTION ALERT\n"
-            f"Trading date: {alert.trading_date}\n"
-            f"Strategy: {alert.strategy_id}\n"
-            f"Symbol: {alert.symbol}\n"
-            f"Side: {alert.side}\n"
-            f"Limit price: {alert.limit_price}\n"
-            f"Assumed entry price: {alert.assumed_entry_price}\n"
-            f"Trigger candle: {alert.trigger_candle}\n"
-            f"Rank: {alert.rank}\n"
-            f"Status: {alert.status}"
-        ),
-        timeout=5,
+    lines = [
+        "BUY EXECUTION ALERT",
+        f"Trading date: {alert.trading_date}",
+        f"Strategy: {alert.strategy_id}",
+        f"Symbol: {alert.symbol}",
+        f"Alert type: {alert.alert_type}",
+        f"Side: {alert.side}",
+    ]
+    if alert.alert_type == "PRICE":
+        lines.extend(
+            [
+                f"Limit price: {alert.limit_price}",
+                f"Assumed entry price: {alert.assumed_entry_price}",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"Volume threshold: {alert.volume_threshold}",
+                f"Candle volume: {alert.candle_volume}",
+            ]
+        )
+    lines.extend(
+        [
+            f"Trigger candle: {alert.trigger_candle}",
+            f"Rank: {alert.rank}",
+            f"Status: {alert.status}",
+        ]
     )
+    send_slack_message(webhook_url, "\n".join(lines), timeout=5)
     return True
 
 
@@ -123,8 +137,11 @@ class Evaluation:
     symbol: str
     outcome: str
     reason: str
-    limit_price: Decimal
+    alert_type: str
+    limit_price: Decimal | None = None
     assumed_entry_price: Decimal | None = None
+    volume_threshold: Decimal | None = None
+    candle_volume: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -134,12 +151,15 @@ class ExecutionAlert:
     symbol: str
     side: str
     alert_time: str
-    limit_price: Decimal
-    assumed_entry_price: Decimal
     trigger_candle: str
     final_score: str
     rank: int
-    status: str = "ENTERED"
+    alert_type: str
+    limit_price: Decimal | None = None
+    assumed_entry_price: Decimal | None = None
+    volume_threshold: Decimal | None = None
+    candle_volume: Decimal | None = None
+    status: str = "TRIGGERED"
 
 
 class DailyOutputStore:
@@ -162,10 +182,13 @@ class DailyOutputStore:
         "trading_date",
         "strategy_id",
         "symbol",
+        "alert_type",
         "side",
         "alert_time",
         "limit_price",
         "assumed_entry_price",
+        "volume_threshold",
+        "candle_volume",
         "trigger_candle",
         "final_score",
         "rank",
@@ -235,10 +258,13 @@ class DailyOutputStore:
                 "trading_date": alert.trading_date,
                 "strategy_id": alert.strategy_id,
                 "symbol": alert.symbol,
+                "alert_type": alert.alert_type,
                 "side": alert.side,
                 "alert_time": alert.alert_time,
                 "limit_price": alert.limit_price,
                 "assumed_entry_price": alert.assumed_entry_price,
+                "volume_threshold": alert.volume_threshold,
+                "candle_volume": alert.candle_volume,
                 "trigger_candle": alert.trigger_candle,
                 "final_score": alert.final_score,
                 "rank": alert.rank,
@@ -249,6 +275,33 @@ class DailyOutputStore:
 
 def evaluate(instrument: ResolvedInstrument, candle: list[Any]) -> Evaluation:
     signal = instrument.signal
+    if signal.volume_threshold:
+        try:
+            threshold = Decimal(signal.volume_threshold)
+            candle_volume = Decimal(str(candle[5]))
+        except (IndexError, InvalidOperation) as exc:
+            raise ValueError(
+                f"{signal.symbol} has an invalid volume threshold or candle volume"
+            ) from exc
+        if threshold <= 0:
+            raise ValueError(f"{signal.symbol} volume_threshold must be positive")
+        if candle_volume < threshold:
+            return Evaluation(
+                signal.symbol,
+                "WAIT",
+                "candle volume is below volume threshold",
+                "VOLUME",
+                volume_threshold=threshold,
+                candle_volume=candle_volume,
+            )
+        return Evaluation(
+            signal.symbol,
+            "ENTER",
+            "candle volume reached volume threshold",
+            "VOLUME",
+            volume_threshold=threshold,
+            candle_volume=candle_volume,
+        )
     try:
         limit = Decimal(signal.limit_price)
         candle_open = Decimal(str(candle[1]))
@@ -260,34 +313,45 @@ def evaluate(instrument: ResolvedInstrument, candle: list[Any]) -> Evaluation:
     if limit <= 0:
         raise ValueError(f"{signal.symbol} limit_price must be positive")
     if candle_low > limit:
-        return Evaluation(signal.symbol, "WAIT", "candle low is above limit price", limit)
+        return Evaluation(
+            signal.symbol,
+            "WAIT",
+            "candle low is above limit price",
+            "PRICE",
+            limit_price=limit,
+        )
     return Evaluation(
         signal.symbol,
         "ENTER",
         "candle low reached limit price",
-        limit,
-        min(candle_open, limit),
+        "PRICE",
+        limit_price=limit,
+        assumed_entry_price=min(candle_open, limit),
     )
 
 
 def build_alert(
     instrument: ResolvedInstrument, candle: list[Any], evaluation: Evaluation
 ) -> ExecutionAlert:
-    if evaluation.outcome != "ENTER" or evaluation.assumed_entry_price is None:
+    if evaluation.outcome != "ENTER":
         raise ValueError("an alert can only be built for an ENTER evaluation")
     signal = instrument.signal
     start = datetime.fromisoformat(str(candle[0]))
     return ExecutionAlert(
-        signal.trading_date,
-        signal.strategy_id,
-        signal.symbol,
-        "BUY",
-        datetime.now(start.tzinfo).isoformat(),
-        evaluation.limit_price,
-        evaluation.assumed_entry_price,
-        start.isoformat(),
-        signal.final_score,
-        signal.rank,
+        trading_date=signal.trading_date,
+        strategy_id=signal.strategy_id,
+        symbol=signal.symbol,
+        side="BUY",
+        alert_time=datetime.now(start.tzinfo).isoformat(),
+        trigger_candle=start.isoformat(),
+        final_score=signal.final_score,
+        rank=signal.rank,
+        alert_type=evaluation.alert_type,
+        limit_price=evaluation.limit_price,
+        assumed_entry_price=evaluation.assumed_entry_price,
+        volume_threshold=evaluation.volume_threshold,
+        candle_volume=evaluation.candle_volume,
+        status="ENTERED" if evaluation.alert_type == "PRICE" else "TRIGGERED",
     )
 
 
@@ -296,9 +360,14 @@ def print_alert(alert: ExecutionAlert) -> None:
     print(f"Trading date:        {alert.trading_date}")
     print(f"Strategy:            {alert.strategy_id}")
     print(f"Symbol:              {alert.symbol}")
+    print(f"Alert type:          {alert.alert_type}")
     print(f"Side:                {alert.side}")
-    print(f"Limit price:         {alert.limit_price}")
-    print(f"Assumed entry price: {alert.assumed_entry_price}")
+    if alert.alert_type == "PRICE":
+        print(f"Limit price:         {alert.limit_price}")
+        print(f"Assumed entry price: {alert.assumed_entry_price}")
+    else:
+        print(f"Volume threshold:    {alert.volume_threshold}")
+        print(f"Candle volume:       {alert.candle_volume}")
     print(f"Trigger candle:      {alert.trigger_candle}")
     print(f"Rank:                {alert.rank}")
     print(f"Status:              {alert.status}")
@@ -382,11 +451,15 @@ def evaluate_cycle(
             evaluations.append(item)
             LOGGER.info(
                 "Signal evaluated | strategy=%s | symbol=%s | candle=%s | "
-                "limit=%s | outcome=%s | reason=%s",
+                "type=%s | limit=%s | volume_threshold=%s | candle_volume=%s | "
+                "outcome=%s | reason=%s",
                 instrument.signal.strategy_id,
                 item.symbol,
                 candle_start,
+                item.alert_type,
                 item.limit_price,
+                item.volume_threshold,
+                item.candle_volume,
                 item.outcome,
                 item.reason,
             )
@@ -398,12 +471,16 @@ def evaluate_cycle(
                 alerts.append(alert)
                 alerted.add(identity)
                 LOGGER.info(
-                    "ALERT generated | strategy=%s | symbol=%s | limit=%s | "
-                    "assumed_entry=%s | trigger_candle=%s",
+                    "ALERT generated | strategy=%s | symbol=%s | type=%s | "
+                    "limit=%s | assumed_entry=%s | volume_threshold=%s | "
+                    "candle_volume=%s | trigger_candle=%s",
                     alert.strategy_id,
                     alert.symbol,
+                    alert.alert_type,
                     alert.limit_price,
                     alert.assumed_entry_price,
+                    alert.volume_threshold,
+                    alert.candle_volume,
                     alert.trigger_candle,
                 )
                 print_alert(alert)

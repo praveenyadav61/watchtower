@@ -6,10 +6,15 @@ The first project milestone fetches and displays the latest **completed**
 Business dates in project inputs and outputs use `YYYYMMDD` (for example,
 `20260713`). Upstox candle timestamps remain timezone-aware ISO-8601 values.
 
+For installation, environment variables, daily commands, expected timings,
+outputs, and troubleshooting, use the
+[Project Setup and Daily Run Guide](docs/project_setup_and_daily_run.md).
+
 ## Quick setup and live run
 
-After cloning or copying the project, place the prepared `watchlist.csv` in the
-project root. It must use today's `YYYYMMDD` date and include `limit_price`.
+After cloning or copying the project, place the watchlist in the project root.
+The live scripts automatically prefer `watchlist_YYYYMMDD.csv` for the current
+date and otherwise use `watchlist.csv`.
 
 ```text
 git clone <repository-url> alert-engine
@@ -45,6 +50,29 @@ trading date in `Asia/Kolkata`. Pass a different watchlist when needed:
 
 ```bash
 bash ./run_live.sh ./watchlist_20260714.csv
+```
+
+For a volume-only session, the entire watchlist can be:
+
+```csv
+symbol,volume_threshold
+ADANIENT,500000
+ADANIGREEN,300000
+```
+
+The engine supplies the trading date, `volume_threshold_v1` strategy, BUY
+decision, and row-order rank. It evaluates completed 15-minute candle volume
+and alerts once when `candle volume >= volume_threshold`. Price watchlists using
+`limit_price` remain supported. Do not put both thresholds on the same row.
+
+Test volume mode without a live market:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.execution_engine `
+  .\examples\mock_volume_watchlist.csv `
+  --trading-date 20260713 `
+  --mock-candles .\examples\mock_candles.json `
+  --mock-instruments .\examples\mock_instruments.json
 ```
 
 ## Run

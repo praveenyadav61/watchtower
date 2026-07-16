@@ -1,9 +1,19 @@
 param(
-    [string]$Watchlist = ".\watchlist.csv"
+    [string]$Watchlist = ""
 )
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+
+if (-not $Watchlist) {
+    $datedWatchlist = ".\watchlist_$((Get-Date).ToString('yyyyMMdd')).csv"
+    $Watchlist = if (Test-Path -LiteralPath $datedWatchlist) {
+        $datedWatchlist
+    }
+    else {
+        ".\watchlist.csv"
+    }
+}
 
 if (-not (Test-Path ".venv\Scripts\python.exe")) {
     throw "Virtual environment is missing. Run .\setup.ps1 first."
