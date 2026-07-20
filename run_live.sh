@@ -20,9 +20,9 @@ if [[ ! -f "$WATCHLIST" ]]; then
 fi
 
 if [[ -z "${UPSTOX_ACCESS_TOKEN:-}" ]]; then
-  read -r -s -p "Paste the Upstox access token: " UPSTOX_ACCESS_TOKEN
-  echo
-  export UPSTOX_ACCESS_TOKEN
+  echo 'UPSTOX_ACCESS_TOKEN is not set. Export it before running:' >&2
+  echo 'export UPSTOX_ACCESS_TOKEN="your-token"' >&2
+  exit 1
 fi
 
 echo "Starting live alert engine with $WATCHLIST..."

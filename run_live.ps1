@@ -23,14 +23,7 @@ if (-not (Test-Path -LiteralPath $Watchlist)) {
 }
 
 if (-not $env:UPSTOX_ACCESS_TOKEN) {
-    $secureToken = Read-Host "Paste the Upstox access token" -AsSecureString
-    $tokenPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-    try {
-        $env:UPSTOX_ACCESS_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($tokenPointer)
-    }
-    finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($tokenPointer)
-    }
+    throw 'UPSTOX_ACCESS_TOKEN is not set. Set it before running: $env:UPSTOX_ACCESS_TOKEN = "your-token"'
 }
 
 Add-Type @"

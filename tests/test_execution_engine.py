@@ -10,6 +10,7 @@ from src.execution_engine import (
     DailyOutputStore,
     build_alert,
     evaluate,
+    evaluate_all,
     evaluate_cycle,
     send_slack_execution_alert,
     send_slack_initialization,
@@ -60,10 +61,10 @@ class ExecutionEngineTests(unittest.TestCase):
 
         self.assertTrue(sent)
         message = mock_send.call_args.args[1]
-        self.assertIn("ALERT ENGINE INITIALIZED", message)
-        self.assertIn("Trading date: 20260716", message)
-        self.assertIn("Status: READY", message)
-        self.assertIn("Active signals: 1", message)
+        self.assertEqual(
+            "✅ Engine ready | 20260716 | symbols 1 | rejected 0 | unresolved 0",
+            message,
+        )
 
     @patch("src.execution_engine.send_slack_message")
     @patch.dict(
@@ -80,10 +81,7 @@ class ExecutionEngineTests(unittest.TestCase):
 
         self.assertTrue(sent)
         message = mock_send.call_args.args[1]
-        self.assertIn("BUY EXECUTION ALERT", message)
-        self.assertIn("Symbol: ABC", message)
-        self.assertIn("Limit price: 99.95", message)
-        self.assertIn("Status: ENTERED", message)
+        self.assertEqual("🔔 ABC | LOW 99.5 ≤ 99.95 | 09:30", message)
 
     @patch("src.execution_engine.send_slack_message")
     @patch.dict("os.environ", {}, clear=True)
@@ -171,16 +169,62 @@ class ExecutionEngineTests(unittest.TestCase):
 
         self.assertTrue(send_slack_execution_alert(alert))
         message = mock_send.call_args.args[1]
-        self.assertIn("Alert type: VOLUME", message)
-        self.assertIn("Volume threshold: 1000", message)
-        self.assertIn("Candle volume: 1250", message)
+        self.assertEqual(
+            "🔔 ABC | VOLUME 1,250 ≥ 1,000 | 1.25x | 09:30",
+            message,
+        )
 
-    def test_rejects_missing_limit_price(self):
-        with self.assertRaisesRegex(ValueError, "invalid limit price"):
+    def test_rejects_signal_without_any_rule(self):
+        with self.assertRaisesRegex(ValueError, "no configured alert rule"):
             evaluate(
                 instrument(""),
                 ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1000, 0],
             )
+
+    def test_evaluates_all_configured_rules_independently(self):
+        signal = AcceptedSignal(
+            2, "20260710", "multi", "ABC", "BUY", 1, "", "", "1000",
+            "100", "102", "101",
+        )
+        item = ResolvedInstrument(signal, "NSE_EQ|ABC", 5)
+        candle = ["2026-07-10T09:30:00+05:30", 101, 103, 99, 101.5, 1200, 0]
+
+        evaluations = evaluate_all(item, candle)
+
+        self.assertEqual(4, len(evaluations))
+        self.assertEqual(
+            {"volume_threshold", "price_low_limit", "price_high_limit", "ema20"},
+            {evaluation.rule_id for evaluation in evaluations},
+        )
+        self.assertTrue(all(evaluation.outcome == "ENTER" for evaluation in evaluations))
+
+    def test_volume_repeats_but_price_and_ema_alert_only_once(self):
+        signal = AcceptedSignal(
+            2, "20260710", "multi", "ABC", "BUY", 1, "", "", "1000",
+            "100", "102", "101",
+        )
+        item = ResolvedInstrument(signal, "NSE_EQ|ABC", 5)
+        result = InitializationResult("20260710", [item], [], [])
+        candles = [
+            ["2026-07-10T09:30:00+05:30", 101, 103, 99, 101.5, 1200, 0],
+            ["2026-07-10T09:45:00+05:30", 101, 104, 98, 102, 1400, 0],
+        ]
+        triggered_once = set()
+        processed = set()
+
+        _, first_alerts = evaluate_cycle(
+            result, lambda _key, _symbol: candles,
+            datetime.fromisoformat("2026-07-10T09:45:00+05:30"),
+            triggered_once, processed,
+        )
+        _, second_alerts = evaluate_cycle(
+            result, lambda _key, _symbol: candles,
+            datetime.fromisoformat("2026-07-10T10:00:00+05:30"),
+            triggered_once, processed,
+        )
+
+        self.assertEqual(4, len(first_alerts))
+        self.assertEqual(["volume_threshold"], [alert.rule_id for alert in second_alerts])
 
     def test_one_symbol_failure_does_not_stop_other_symbols(self):
         broken = instrument()
@@ -222,13 +266,19 @@ class ExecutionEngineTests(unittest.TestCase):
 
         self.assertTrue(store.record_candle(item, candle, received))
         self.assertFalse(store.record_candle(item, candle, received))
-        store.record_alert(alert)
+        self.assertTrue(store.record_alert(alert))
+        self.assertFalse(store.record_alert(alert))
 
         with store.candle_path.open(newline="", encoding="utf-8") as handle:
             self.assertEqual(1, len(list(csv.DictReader(handle))))
         with store.alert_path.open(newline="", encoding="utf-8") as handle:
             rows = list(csv.DictReader(handle))
         self.assertEqual("ABC", rows[0]["symbol"])
+        restarted = DailyOutputStore(directory, "20990101")
+        self.assertIn(
+            ("strategy-v1", "ABC", "price_low_limit"),
+            restarted.triggered_once,
+        )
 
     def test_volume_alert_csv_contains_volume_details(self):
         candle = ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1250, 0]
@@ -247,6 +297,45 @@ class ExecutionEngineTests(unittest.TestCase):
         self.assertEqual("VOLUME", row["alert_type"])
         self.assertEqual("1000", row["volume_threshold"])
         self.assertEqual("1250", row["candle_volume"])
+
+    def test_legacy_alert_csv_is_backed_up_and_migrated(self):
+        directory = Path("output/test_artifacts")
+        path = directory / "execution_alerts_20990103.csv"
+        backup = directory / "execution_alerts_20990103_legacy.csv"
+        path.unlink(missing_ok=True)
+        backup.unlink(missing_ok=True)
+        self.addCleanup(path.unlink, missing_ok=True)
+        self.addCleanup(backup.unlink, missing_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
+        fields = [
+            "trading_date", "strategy_id", "symbol", "side", "alert_time",
+            "limit_price", "assumed_entry_price", "trigger_candle",
+            "final_score", "rank", "status",
+        ]
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerow({
+                "trading_date": "20990103",
+                "strategy_id": "legacy",
+                "symbol": "ABC",
+                "side": "BUY",
+                "alert_time": "2099-01-03T09:45:00+05:30",
+                "limit_price": "100",
+                "assumed_entry_price": "99.5",
+                "trigger_candle": "2099-01-03T09:30:00+05:30",
+                "rank": "1",
+                "status": "ENTERED",
+            })
+
+        store = DailyOutputStore(directory, "20990103")
+
+        self.assertTrue(backup.exists())
+        self.assertIn(("legacy", "ABC", "price_low_limit"), store.triggered_once)
+        with path.open(newline="", encoding="utf-8") as handle:
+            row = next(csv.DictReader(handle))
+        self.assertEqual("price_low_limit", row["rule_id"])
+        self.assertEqual("ONCE_PER_DAY", row["repeat_mode"])
 
     @patch("src.execution_engine.time.sleep", side_effect=KeyboardInterrupt)
     def test_watch_handles_ctrl_c_and_returns_counts(self, _mock_sleep):

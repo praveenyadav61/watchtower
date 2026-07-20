@@ -1,11 +1,36 @@
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-from upstox_candles import extract_candles, latest_completed_candle, load_mock_candles
+from upstox_candles import (
+    extract_candles,
+    fetch_candles,
+    latest_completed_candle,
+    load_mock_candles,
+)
 
 
 class LatestCompletedCandleTests(unittest.TestCase):
+    @patch("upstox_candles.requests.get")
+    def test_live_request_uses_documented_v3_headers_and_path(self, mock_get):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"status": "success", "data": {"candles": []}}
+        mock_get.return_value = response
+
+        fetch_candles("NSE_EQ|INE848E01016", "secret-token")
+
+        url = mock_get.call_args.args[0]
+        headers = mock_get.call_args.kwargs["headers"]
+        self.assertEqual(
+            "https://api.upstox.com/v3/historical-candle/intraday/"
+            "NSE_EQ%7CINE848E01016/minutes/15",
+            url,
+        )
+        self.assertEqual("application/json", headers["Content-Type"])
+        self.assertEqual("Bearer secret-token", headers["Authorization"])
+
     def test_excludes_forming_candle_and_ignores_response_order(self):
         candles = [
             ["2026-07-11T10:00:00+05:30", 102, 103, 101, 102, 1000, 0],

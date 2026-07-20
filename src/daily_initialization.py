@@ -17,6 +17,17 @@ import requests
 
 
 REQUIRED_COLUMNS = {"symbol"}
+ALERT_COLUMNS = {
+    "limit_price",
+    "volume_threshold",
+    "price_low_limit",
+    "price_high_limit",
+    "ema20",
+}
+COMMON_COLUMN_MISTAKES = {
+    "threshold_volume": "volume_threshold",
+    "ema21": "ema20",
+}
 NSE_INSTRUMENTS_URL = (
     "https://assets.upstox.com/market-quote/instruments/exchange/NSE.json.gz"
 )
@@ -34,6 +45,9 @@ class AcceptedSignal:
     final_score: str = ""
     limit_price: str = ""
     volume_threshold: str = ""
+    price_low_limit: str = ""
+    price_high_limit: str = ""
+    ema20: str = ""
 
 
 @dataclass(frozen=True)
@@ -91,9 +105,23 @@ def validate_rows(
     for line_number, row in enumerate(rows, start=2):
         limit_price = (row.get("limit_price") or "").strip()
         volume_threshold = (row.get("volume_threshold") or "").strip()
-        default_strategy = (
-            "volume_threshold_v1" if volume_threshold else "price_threshold_v1"
-        )
+        price_low_limit = (row.get("price_low_limit") or "").strip()
+        price_high_limit = (row.get("price_high_limit") or "").strip()
+        ema20 = (row.get("ema20") or "").strip()
+        configured_values = {
+            "limit_price": limit_price,
+            "volume_threshold": volume_threshold,
+            "price_low_limit": price_low_limit,
+            "price_high_limit": price_high_limit,
+            "ema20": ema20,
+        }
+        configured_count = sum(bool(value) for value in configured_values.values())
+        if configured_count == 1 and volume_threshold:
+            default_strategy = "volume_threshold_v1"
+        elif configured_count == 1:
+            default_strategy = "price_threshold_v1"
+        else:
+            default_strategy = "multi_alert_v1"
         trading_date = (row.get("trading_date") or expected_date or current_business_date()).strip()
         strategy_id = (row.get("strategy_id") or default_strategy).strip()
         symbol = (row.get("symbol") or "").strip().upper()
@@ -123,33 +151,34 @@ def validate_rows(
         except ValueError:
             rejected.append(RejectedRow(line_number, "rank must be a positive integer"))
             continue
-        if bool(limit_price) == bool(volume_threshold):
+        if not configured_count:
+            rejected.append(
+                RejectedRow(line_number, "provide at least one supported alert value")
+            )
+            continue
+        if limit_price and price_low_limit:
             rejected.append(
                 RejectedRow(
                     line_number,
-                    "provide exactly one of limit_price or volume_threshold",
+                    "use either limit_price or price_low_limit, not both",
                 )
             )
             continue
-        if limit_price:
+        invalid_column = None
+        for column, value in configured_values.items():
+            if not value:
+                continue
             try:
-                if float(limit_price) <= 0:
+                if float(value) <= 0:
                     raise ValueError
             except ValueError:
-                rejected.append(RejectedRow(line_number, "limit_price must be a positive number"))
-                continue
-        if volume_threshold:
-            try:
-                if float(volume_threshold) <= 0:
-                    raise ValueError
-            except ValueError:
-                rejected.append(
-                    RejectedRow(
-                        line_number,
-                        "volume_threshold must be a positive number",
-                    )
-                )
-                continue
+                invalid_column = column
+                break
+        if invalid_column:
+            rejected.append(
+                RejectedRow(line_number, f"{invalid_column} must be a positive number")
+            )
+            continue
 
         key = (strategy_id, symbol)
         if key in seen:
@@ -167,6 +196,9 @@ def validate_rows(
                 final_score,
                 limit_price,
                 volume_threshold,
+                price_low_limit,
+                price_high_limit,
+                ema20,
             )
         )
 
@@ -187,12 +219,18 @@ def load_watchlist(
                     "watchlist is missing required columns: "
                     + ", ".join(sorted(missing))
                 )
-            threshold_columns = {"limit_price", "volume_threshold"} & set(
-                reader.fieldnames or []
-            )
+            mistaken = COMMON_COLUMN_MISTAKES.keys() & set(reader.fieldnames or [])
+            if mistaken:
+                corrections = ", ".join(
+                    f"{name} -> {COMMON_COLUMN_MISTAKES[name]}"
+                    for name in sorted(mistaken)
+                )
+                raise ValueError(f"watchlist contains unsupported alert columns: {corrections}")
+            threshold_columns = ALERT_COLUMNS & set(reader.fieldnames or [])
             if not threshold_columns:
                 raise ValueError(
-                    "watchlist must contain limit_price or volume_threshold"
+                    "watchlist must contain at least one supported alert column: "
+                    + ", ".join(sorted(ALERT_COLUMNS))
                 )
             rows = list(reader)
     except OSError as exc:

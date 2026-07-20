@@ -37,15 +37,23 @@ def fetch_candles(instrument_key: str, access_token: str) -> list[list[Any]]:
         response = requests.get(
             url,
             headers={
-            "Accept": "application/json",
-            "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {access_token}",
             },
             timeout=15,
         )
         response.raise_for_status()
     except requests.HTTPError as exc:
+        detail = response.text.strip() or response.reason or "no response details"
+        request_id = (
+            response.headers.get("X-Request-Id")
+            or response.headers.get("requestId")
+            or "unavailable"
+        )
         raise RuntimeError(
-            f"Upstox returned HTTP {response.status_code}: {response.text}"
+            f"Upstox returned HTTP {response.status_code}: {detail} "
+            f"(request_id={request_id}, url={url})"
         ) from exc
     except requests.RequestException as exc:
         raise RuntimeError(f"Could not connect to Upstox: {exc}") from exc

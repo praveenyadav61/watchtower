@@ -6,11 +6,12 @@ import argparse
 import csv
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 import os
 import json
 import logging
 from pathlib import Path
+import shutil
 import sys
 import time
 from typing import Any, Callable
@@ -22,6 +23,12 @@ from src.daily_initialization import (
     current_business_date,
     initialize,
 )
+from src.alert_rules import (
+    ONCE_PER_DAY,
+    RuleEvaluation,
+    evaluate_rules,
+    load_alert_policies,
+)
 from src.slack_notification import send_slack_message
 from upstox_candles import fetch_candles, latest_completed_candle, load_mock_candles
 
@@ -30,43 +37,42 @@ LOGGER = logging.getLogger("alert_engine")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MOCK_CANDLES = PROJECT_ROOT / "examples" / "mock_candles_by_symbol.json"
 CANDLE_FETCH_DELAY_SECONDS = 5
+ALERT_POLICIES = load_alert_policies(PROJECT_ROOT / "config" / "alert_policies.json")
 
 
 def send_slack_execution_alert(alert: ExecutionAlert) -> bool:
-    """Post one final BUY alert when a Slack webhook is configured."""
+    """Post one compact final alert when a Slack webhook is configured."""
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
     if not webhook_url:
         return False
-    lines = [
-        "BUY EXECUTION ALERT",
-        f"Trading date: {alert.trading_date}",
-        f"Strategy: {alert.strategy_id}",
-        f"Symbol: {alert.symbol}",
-        f"Alert type: {alert.alert_type}",
-        f"Side: {alert.side}",
-    ]
-    if alert.alert_type == "PRICE":
-        lines.extend(
-            [
-                f"Limit price: {alert.limit_price}",
-                f"Assumed entry price: {alert.assumed_entry_price}",
-            ]
+    candle_time = datetime.fromisoformat(alert.trigger_candle).strftime("%H:%M")
+    configured = f"{alert.configured_value:,}"
+    observed = f"{alert.observed_value:,}"
+    if alert.rule_id == "price_low_limit":
+        message = (
+            f"🔔 {alert.symbol} | LOW {observed} ≤ {configured} | {candle_time}"
+        )
+    elif alert.rule_id == "volume_threshold":
+        multiple = alert.candle_volume / alert.volume_threshold
+        message = (
+            f"🔔 {alert.symbol} | VOLUME {observed} ≥ {configured} | "
+            f"{multiple:.2f}x | {candle_time}"
+        )
+    elif alert.rule_id == "price_high_limit":
+        message = (
+            f"🔔 {alert.symbol} | HIGH {observed} ≥ {configured} | {candle_time}"
+        )
+    elif alert.rule_id == "ema20":
+        message = (
+            f"🔔 {alert.symbol} | EMA20 crossed {configured} | "
+            f"close {observed} | {candle_time}"
         )
     else:
-        lines.extend(
-            [
-                f"Volume threshold: {alert.volume_threshold}",
-                f"Candle volume: {alert.candle_volume}",
-            ]
+        message = (
+            f"🔔 {alert.symbol} | {alert.rule_id.upper()} | "
+            f"{observed} | {candle_time}"
         )
-    lines.extend(
-        [
-            f"Trigger candle: {alert.trigger_candle}",
-            f"Rank: {alert.rank}",
-            f"Status: {alert.status}",
-        ]
-    )
-    send_slack_message(webhook_url, "\n".join(lines), timeout=5)
+    send_slack_message(webhook_url, message, timeout=5)
     return True
 
 
@@ -77,14 +83,10 @@ def send_slack_initialization(result: InitializationResult) -> bool:
         return False
     send_slack_message(
         webhook_url,
-        (
-            "ALERT ENGINE INITIALIZED\n"
-            f"Trading date: {result.trading_date}\n"
-            f"Status: {'READY' if result.ready else 'NOT READY'}\n"
-            f"Active signals: {len(result.active_signals)}\n"
-            f"Rejected rows: {len(result.rejected_rows)}\n"
-            f"Unresolved symbols: {len(result.unresolved_symbols)}"
-        ),
+        f"✅ Engine {'ready' if result.ready else 'not ready'} | "
+        f"{result.trading_date} | symbols {len(result.active_signals)} | "
+        f"rejected {len(result.rejected_rows)} | "
+        f"unresolved {len(result.unresolved_symbols)}",
         timeout=5,
     )
     return True
@@ -142,6 +144,11 @@ class Evaluation:
     assumed_entry_price: Decimal | None = None
     volume_threshold: Decimal | None = None
     candle_volume: Decimal | None = None
+    rule_id: str = "price_low_limit"
+    repeat_mode: str = ONCE_PER_DAY
+    comparator: str = ""
+    configured_value: Decimal | None = None
+    observed_value: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +167,15 @@ class ExecutionAlert:
     volume_threshold: Decimal | None = None
     candle_volume: Decimal | None = None
     status: str = "TRIGGERED"
+    rule_id: str = "price_low_limit"
+    repeat_mode: str = ONCE_PER_DAY
+    comparator: str = ""
+    configured_value: Decimal | None = None
+    observed_value: Decimal | None = None
+    candle_open: Decimal | None = None
+    candle_high: Decimal | None = None
+    candle_low: Decimal | None = None
+    candle_close: Decimal | None = None
 
 
 class DailyOutputStore:
@@ -182,13 +198,22 @@ class DailyOutputStore:
         "trading_date",
         "strategy_id",
         "symbol",
+        "rule_id",
         "alert_type",
+        "repeat_mode",
         "side",
         "alert_time",
+        "comparator",
+        "configured_value",
+        "observed_value",
         "limit_price",
         "assumed_entry_price",
         "volume_threshold",
         "candle_volume",
+        "candle_open",
+        "candle_high",
+        "candle_low",
+        "candle_close",
         "trigger_candle",
         "final_score",
         "rank",
@@ -200,6 +225,73 @@ class DailyOutputStore:
         self.candle_path = directory / f"candles_{trading_date}.csv"
         self.alert_path = directory / f"execution_alerts_{trading_date}.csv"
         self._candle_keys = self._load_candle_keys()
+        self._upgrade_legacy_alert_file()
+        self._alert_keys, self.triggered_once = self._load_alert_state()
+
+    def _upgrade_legacy_alert_file(self) -> None:
+        """Atomically upgrade an older alert CSV while retaining a backup."""
+        if not self.alert_path.exists() or self.alert_path.stat().st_size == 0:
+            return
+        try:
+            with self.alert_path.open(newline="", encoding="utf-8-sig") as handle:
+                reader = csv.DictReader(handle)
+                fields = reader.fieldnames or []
+                if fields == self.ALERT_FIELDS:
+                    return
+                required = {"trading_date", "strategy_id", "symbol", "trigger_candle"}
+                if not required.issubset(fields):
+                    raise ValueError(
+                        "existing alert CSV has an unsupported schema; required fields "
+                        f"are missing: {', '.join(sorted(required - set(fields)))}"
+                    )
+                rows = list(reader)
+        except OSError as exc:
+            raise ValueError(f"could not inspect alert output {self.alert_path}: {exc}") from exc
+
+        backup = self.alert_path.with_name(f"{self.alert_path.stem}_legacy.csv")
+        if backup.exists():
+            backup = self.alert_path.with_name(
+                f"{self.alert_path.stem}_legacy_{int(time.time())}.csv"
+            )
+        temporary = self.alert_path.with_suffix(".csv.tmp")
+        try:
+            shutil.copy2(self.alert_path, backup)
+            with temporary.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=self.ALERT_FIELDS)
+                writer.writeheader()
+                for old in rows:
+                    old_type = (old.get("alert_type") or "").upper()
+                    is_volume = bool(old.get("volume_threshold")) or old_type == "VOLUME"
+                    rule_id = "volume_threshold" if is_volume else "price_low_limit"
+                    repeat_mode = ALERT_POLICIES[rule_id]
+                    configured = (
+                        old.get("volume_threshold") if is_volume else old.get("limit_price")
+                    )
+                    observed = (
+                        old.get("candle_volume") if is_volume else old.get("assumed_entry_price")
+                    )
+                    migrated = {field: "" for field in self.ALERT_FIELDS}
+                    migrated.update({field: old.get(field, "") for field in self.ALERT_FIELDS})
+                    migrated.update(
+                        {
+                            "rule_id": rule_id,
+                            "alert_type": old_type or ("VOLUME" if is_volume else "PRICE"),
+                            "repeat_mode": repeat_mode,
+                            "comparator": ">=" if is_volume else "<=",
+                            "configured_value": configured or "",
+                            "observed_value": observed or "",
+                        }
+                    )
+                    writer.writerow(migrated)
+            temporary.replace(self.alert_path)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise ValueError(f"could not upgrade alert output {self.alert_path}: {exc}") from exc
+        LOGGER.warning(
+            "Legacy alert CSV upgraded | current=%s | backup=%s",
+            self.alert_path,
+            backup,
+        )
 
     def _load_candle_keys(self) -> set[tuple[str, str]]:
         if not self.candle_path.exists():
@@ -213,6 +305,33 @@ class DailyOutputStore:
                 }
         except (OSError, KeyError) as exc:
             raise ValueError(f"could not read candle output {self.candle_path}: {exc}") from exc
+
+    def _load_alert_state(
+        self,
+    ) -> tuple[set[tuple[str, str, str, str]], set[tuple[str, str, str]]]:
+        alert_keys: set[tuple[str, str, str, str]] = set()
+        triggered_once: set[tuple[str, str, str]] = set()
+        if not self.alert_path.exists():
+            return alert_keys, triggered_once
+        try:
+            with self.alert_path.open(newline="", encoding="utf-8-sig") as handle:
+                for row in csv.DictReader(handle):
+                    strategy = row.get("strategy_id", "")
+                    symbol = row.get("symbol", "")
+                    rule_id = row.get("rule_id", "")
+                    candle = row.get("trigger_candle", "")
+                    if strategy and symbol and rule_id and candle:
+                        alert_keys.add((strategy, symbol, rule_id, candle))
+                    if (
+                        strategy
+                        and symbol
+                        and rule_id
+                        and row.get("repeat_mode") == ONCE_PER_DAY
+                    ):
+                        triggered_once.add((strategy, symbol, rule_id))
+        except OSError as exc:
+            raise ValueError(f"could not read alert output {self.alert_path}: {exc}") from exc
+        return alert_keys, triggered_once
 
     @staticmethod
     def _append(path: Path, fields: list[str], row: dict[str, Any]) -> None:
@@ -250,7 +369,15 @@ class DailyOutputStore:
         self._candle_keys.add(key)
         return True
 
-    def record_alert(self, alert: ExecutionAlert) -> None:
+    def record_alert(self, alert: ExecutionAlert) -> bool:
+        key = (
+            alert.strategy_id,
+            alert.symbol,
+            alert.rule_id,
+            alert.trigger_candle,
+        )
+        if key in self._alert_keys:
+            return False
         self._append(
             self.alert_path,
             self.ALERT_FIELDS,
@@ -258,76 +385,75 @@ class DailyOutputStore:
                 "trading_date": alert.trading_date,
                 "strategy_id": alert.strategy_id,
                 "symbol": alert.symbol,
+                "rule_id": alert.rule_id,
                 "alert_type": alert.alert_type,
+                "repeat_mode": alert.repeat_mode,
                 "side": alert.side,
                 "alert_time": alert.alert_time,
+                "comparator": alert.comparator,
+                "configured_value": alert.configured_value,
+                "observed_value": alert.observed_value,
                 "limit_price": alert.limit_price,
                 "assumed_entry_price": alert.assumed_entry_price,
                 "volume_threshold": alert.volume_threshold,
                 "candle_volume": alert.candle_volume,
+                "candle_open": alert.candle_open,
+                "candle_high": alert.candle_high,
+                "candle_low": alert.candle_low,
+                "candle_close": alert.candle_close,
                 "trigger_candle": alert.trigger_candle,
                 "final_score": alert.final_score,
                 "rank": alert.rank,
                 "status": alert.status,
             },
         )
+        self._alert_keys.add(key)
+        if alert.repeat_mode == ONCE_PER_DAY:
+            self.triggered_once.add((alert.strategy_id, alert.symbol, alert.rule_id))
+        return True
 
 
 def evaluate(instrument: ResolvedInstrument, candle: list[Any]) -> Evaluation:
-    signal = instrument.signal
-    if signal.volume_threshold:
-        try:
-            threshold = Decimal(signal.volume_threshold)
-            candle_volume = Decimal(str(candle[5]))
-        except (IndexError, InvalidOperation) as exc:
-            raise ValueError(
-                f"{signal.symbol} has an invalid volume threshold or candle volume"
-            ) from exc
-        if threshold <= 0:
-            raise ValueError(f"{signal.symbol} volume_threshold must be positive")
-        if candle_volume < threshold:
-            return Evaluation(
-                signal.symbol,
-                "WAIT",
-                "candle volume is below volume threshold",
-                "VOLUME",
-                volume_threshold=threshold,
-                candle_volume=candle_volume,
+    """Backward-compatible single-rule evaluator used by older integrations."""
+    items = evaluate_all(instrument, candle)
+    if not items:
+        raise ValueError(f"{instrument.signal.symbol} has no configured alert rule")
+    return items[0]
+
+
+def evaluate_all(instrument: ResolvedInstrument, candle: list[Any]) -> list[Evaluation]:
+    results: list[Evaluation] = []
+    for item in evaluate_rules(instrument, candle, ALERT_POLICIES):
+        limit = item.configured_value if item.rule_id == "price_low_limit" else None
+        volume_threshold = (
+            item.configured_value if item.rule_id == "volume_threshold" else None
+        )
+        volume = item.observed_value if item.rule_id == "volume_threshold" else None
+        assumed_entry = None
+        if limit is not None and item.outcome == "ENTER":
+            assumed_entry = min(Decimal(str(candle[1])), limit)
+        legacy_type = {
+            "price_low_limit": "PRICE",
+            "volume_threshold": "VOLUME",
+        }.get(item.rule_id, item.alert_type)
+        results.append(
+            Evaluation(
+                symbol=item.symbol,
+                outcome=item.outcome,
+                reason=item.reason,
+                alert_type=legacy_type,
+                limit_price=limit,
+                assumed_entry_price=assumed_entry,
+                volume_threshold=volume_threshold,
+                candle_volume=volume,
+                rule_id=item.rule_id,
+                repeat_mode=item.repeat_mode,
+                comparator=item.comparator,
+                configured_value=item.configured_value,
+                observed_value=item.observed_value,
             )
-        return Evaluation(
-            signal.symbol,
-            "ENTER",
-            "candle volume reached volume threshold",
-            "VOLUME",
-            volume_threshold=threshold,
-            candle_volume=candle_volume,
         )
-    try:
-        limit = Decimal(signal.limit_price)
-        candle_open = Decimal(str(candle[1]))
-        candle_low = Decimal(str(candle[3]))
-    except (IndexError, InvalidOperation) as exc:
-        raise ValueError(
-            f"{signal.symbol} has an invalid limit price, candle open, or candle low"
-        ) from exc
-    if limit <= 0:
-        raise ValueError(f"{signal.symbol} limit_price must be positive")
-    if candle_low > limit:
-        return Evaluation(
-            signal.symbol,
-            "WAIT",
-            "candle low is above limit price",
-            "PRICE",
-            limit_price=limit,
-        )
-    return Evaluation(
-        signal.symbol,
-        "ENTER",
-        "candle low reached limit price",
-        "PRICE",
-        limit_price=limit,
-        assumed_entry_price=min(candle_open, limit),
-    )
+    return results
 
 
 def build_alert(
@@ -352,6 +478,15 @@ def build_alert(
         volume_threshold=evaluation.volume_threshold,
         candle_volume=evaluation.candle_volume,
         status="ENTERED" if evaluation.alert_type == "PRICE" else "TRIGGERED",
+        rule_id=evaluation.rule_id,
+        repeat_mode=evaluation.repeat_mode,
+        comparator=evaluation.comparator,
+        configured_value=evaluation.configured_value,
+        observed_value=evaluation.observed_value,
+        candle_open=Decimal(str(candle[1])),
+        candle_high=Decimal(str(candle[2])),
+        candle_low=Decimal(str(candle[3])),
+        candle_close=Decimal(str(candle[4])),
     )
 
 
@@ -361,11 +496,15 @@ def print_alert(alert: ExecutionAlert) -> None:
     print(f"Strategy:            {alert.strategy_id}")
     print(f"Symbol:              {alert.symbol}")
     print(f"Alert type:          {alert.alert_type}")
+    print(f"Rule:                {alert.rule_id}")
+    print(f"Repeat mode:         {alert.repeat_mode}")
     print(f"Side:                {alert.side}")
-    if alert.alert_type == "PRICE":
+    print(f"Configured value:    {alert.configured_value}")
+    print(f"Observed value:      {alert.observed_value}")
+    if alert.rule_id == "price_low_limit":
         print(f"Limit price:         {alert.limit_price}")
         print(f"Assumed entry price: {alert.assumed_entry_price}")
-    else:
+    elif alert.rule_id == "volume_threshold":
         print(f"Volume threshold:    {alert.volume_threshold}")
         print(f"Candle volume:       {alert.candle_volume}")
     print(f"Trigger candle:      {alert.trigger_candle}")
@@ -407,7 +546,7 @@ def evaluate_cycle(
     result: InitializationResult,
     candle_loader: Callable[[str, str], list[list[Any]]],
     now: datetime,
-    alerted: set[tuple[str, str]],
+    alerted: set[tuple[str, str, str]],
     processed: set[tuple[str, str, str]],
     output_store: DailyOutputStore | None = None,
 ) -> tuple[list[Evaluation], list[ExecutionAlert]]:
@@ -415,8 +554,6 @@ def evaluate_cycle(
     alerts: list[ExecutionAlert] = []
     for instrument in result.active_signals:
         identity = (instrument.signal.strategy_id, instrument.signal.symbol)
-        if identity in alerted:
-            continue
         try:
             LOGGER.info(
                 "Loading candles | strategy=%s | symbol=%s | instrument=%s",
@@ -447,59 +584,77 @@ def evaluate_cycle(
                     candle_start,
                     output_store.candle_path,
                 )
-            item = evaluate(instrument, candle)
-            evaluations.append(item)
-            LOGGER.info(
-                "Signal evaluated | strategy=%s | symbol=%s | candle=%s | "
-                "type=%s | limit=%s | volume_threshold=%s | candle_volume=%s | "
-                "outcome=%s | reason=%s",
-                instrument.signal.strategy_id,
-                item.symbol,
-                candle_start,
-                item.alert_type,
-                item.limit_price,
-                item.volume_threshold,
-                item.candle_volume,
-                item.outcome,
-                item.reason,
-            )
-            if item.outcome == "ENTER":
-                alert = build_alert(instrument, candle, item)
-                if output_store is not None:
-                    output_store.record_alert(alert)
-                    LOGGER.info("Alert CSV appended | path=%s", output_store.alert_path)
-                alerts.append(alert)
-                alerted.add(identity)
+            for item in evaluate_all(instrument, candle):
+                once_key = (*identity, item.rule_id)
+                if item.repeat_mode == ONCE_PER_DAY and once_key in alerted:
+                    LOGGER.info(
+                        "Rule already triggered today; evaluation skipped | "
+                        "strategy=%s | symbol=%s | rule=%s",
+                        *identity,
+                        item.rule_id,
+                    )
+                    continue
+                evaluations.append(item)
                 LOGGER.info(
-                    "ALERT generated | strategy=%s | symbol=%s | type=%s | "
-                    "limit=%s | assumed_entry=%s | volume_threshold=%s | "
-                    "candle_volume=%s | trigger_candle=%s",
+                    "Rule evaluated | strategy=%s | symbol=%s | candle=%s | "
+                    "rule=%s | repeat=%s | configured=%s | observed=%s | "
+                    "outcome=%s | reason=%s",
+                    instrument.signal.strategy_id,
+                    item.symbol,
+                    candle_start,
+                    item.rule_id,
+                    item.repeat_mode,
+                    item.configured_value,
+                    item.observed_value,
+                    item.outcome,
+                    item.reason,
+                )
+                if item.outcome != "ENTER":
+                    print(f"{item.symbol} [{item.rule_id}]: {item.outcome} - {item.reason}")
+                    continue
+                alert = build_alert(instrument, candle, item)
+                written = True
+                if output_store is not None:
+                    written = output_store.record_alert(alert)
+                    LOGGER.info(
+                        "Alert CSV %s | rule=%s | path=%s",
+                        "appended" if written else "already stored",
+                        alert.rule_id,
+                        output_store.alert_path,
+                    )
+                if not written:
+                    continue
+                alerts.append(alert)
+                if item.repeat_mode == ONCE_PER_DAY:
+                    alerted.add(once_key)
+                LOGGER.info(
+                    "ALERT generated | strategy=%s | symbol=%s | rule=%s | "
+                    "repeat=%s | configured=%s | observed=%s | trigger_candle=%s",
                     alert.strategy_id,
                     alert.symbol,
-                    alert.alert_type,
-                    alert.limit_price,
-                    alert.assumed_entry_price,
-                    alert.volume_threshold,
-                    alert.candle_volume,
+                    alert.rule_id,
+                    alert.repeat_mode,
+                    alert.configured_value,
+                    alert.observed_value,
                     alert.trigger_candle,
                 )
                 print_alert(alert)
                 try:
                     if send_slack_execution_alert(alert):
                         LOGGER.info(
-                            "Slack BUY alert sent | strategy=%s | symbol=%s",
+                            "Slack BUY alert sent | strategy=%s | symbol=%s | rule=%s",
                             alert.strategy_id,
                             alert.symbol,
+                            alert.rule_id,
                         )
                 except Exception:
                     LOGGER.exception(
                         "Slack BUY alert failed; engine continues | strategy=%s | "
-                        "symbol=%s",
+                        "symbol=%s | rule=%s",
                         alert.strategy_id,
                         alert.symbol,
+                        alert.rule_id,
                     )
-            else:
-                print(f"{item.symbol}: {item.outcome} - {item.reason}")
         except Exception:
             LOGGER.exception(
                 "Symbol evaluation failed; continuing | strategy=%s | symbol=%s | "
@@ -522,7 +677,7 @@ def run(
     LOGGER.info("Loading watchlist: %s", watchlist)
     result = initialize(watchlist, trading_date, instruments)
     report_initialization(result)
-    alerted: set[tuple[str, str]] = set()
+    alerted = set(output_store.triggered_once) if output_store is not None else set()
     reference_time = now or datetime.now(MARKET_TIMEZONE)
     evaluations, alerts = evaluate_cycle(
         result, candle_loader, reference_time, alerted, set(), output_store
@@ -543,7 +698,7 @@ def watch(
     LOGGER.info("Loading watchlist: %s", watchlist)
     result = initialize(watchlist, trading_date, instruments)
     report_initialization(result)
-    alerted: set[tuple[str, str]] = set()
+    alerted = set(output_store.triggered_once) if output_store is not None else set()
     processed: set[tuple[str, str, str]] = set()
     all_evaluations: list[Evaluation] = []
     all_alerts: list[ExecutionAlert] = []
@@ -566,9 +721,6 @@ def watch(
                 )
                 all_evaluations.extend(evaluations)
                 all_alerts.extend(alerts)
-                if len(alerted) == len(result.active_signals):
-                    shutdown_reason = "all_signals_alerted"
-                    break
                 if mock_delay:
                     time.sleep(mock_delay)
             else:
@@ -586,9 +738,6 @@ def watch(
                     )
                     all_evaluations.extend(evaluations)
                     all_alerts.extend(alerts)
-                    if len(alerted) == len(result.active_signals):
-                        shutdown_reason = "all_signals_alerted"
-                        break
                     if now >= cutoff:
                         shutdown_reason = "market_cutoff"
                         break
@@ -607,11 +756,10 @@ def watch(
         shutdown_reason = "user_interrupt"
         LOGGER.warning("Ctrl+C received; shutting down cleanly")
     finally:
-        remaining = max(0, len(result.active_signals) - len(alerted))
         summary = (
             f"Watch stopped | reason={shutdown_reason} | "
             f"evaluated={len(all_evaluations)} | alerts={len(all_alerts)} | "
-            f"remaining={remaining}"
+            f"one_time_rules_triggered={len(alerted)}"
         )
         print(f"\n{summary}")
         LOGGER.info(summary)
@@ -657,6 +805,10 @@ def main() -> int:
     LOGGER.info("Error-only log file | path=%s", error_log_path)
     if os.environ.get("SLACK_WEBHOOK_URL", "").strip():
         LOGGER.info("Slack initialization and BUY alert notifications active")
+    else:
+        LOGGER.warning(
+            "Slack notifications inactive | SLACK_WEBHOOK_URL is not set"
+        )
     if args.mock and args.mock_candles:
         parser.error("--mock already supplies its own candle replay file")
 
