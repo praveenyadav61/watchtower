@@ -20,6 +20,10 @@ alerts have fired.
 | `price_high_limit` | candle high >= limit | Once per day |
 | `ema20` | candle low <= EMA20 <= candle high | Once per day |
 
+Every row containing `volume_threshold` also activates the special cumulative
+score described below. It uses the same daily watchlist; no separate file or
+column is required.
+
 `limit_price` remains a backward-compatible alias for `price_low_limit`. Do not
 provide both names on the same row.
 
@@ -89,3 +93,44 @@ Console, alert CSV, and Slack all use the same evaluated rule result.
 An API or candle error for one symbol is logged and isolated. Other symbols
 continue processing, and the failed symbol is retried at the next scheduled
 cycle.
+
+## Cumulative score
+
+The first completed candle establishes the previous-close baseline. Starting
+with the second completed candle, the engine calculates:
+
+```text
+delta_p = ((current close - previous close) / previous close) × 100
+volume_multiple = candle volume / volume_threshold
+score_contribution = delta_p × volume_multiple
+cumulative_score = previous cumulative_score + score_contribution
+```
+
+All completed candles from the beginning of the session are processed in time
+order, including after a late start or restart. Positive price change increases
+the score; negative price change reduces it.
+
+The signed harmonic mean for each candle is:
+
+```text
+harmonic_magnitude = 2 / ((1 / abs(delta_p)) + (1 / volume_multiple))
+harmonic_mean = sign(delta_p) × harmonic_magnitude
+```
+
+The harmonic mean is zero when either input is zero.
+
+An alert is sent on every completed candle whose cumulative score is above 1.
+The alert count belongs to that symbol and increments only when an alert is
+sent. `🆕` marks alert number one, `🟡` marks scores above 1 through 5, and `🟢`
+marks scores above 5.
+
+```text
+🆕 🟡 ADANIENT | CUMULATIVE SCORE 1.24 | Alert #1 | 10:15
+Scores: 0.20 → 0.68 → 1.24
+Harmonic: 0.31 → 0.72 → 0.94
+```
+
+Both complete morning series are included in every cumulative-score Slack
+alert. Every calculation is persisted in
+`output/cumulative_scores_YYYYMMDD.csv`. Thresholds and display precision live
+in `config/cumulative_score_policy.json`.

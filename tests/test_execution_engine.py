@@ -298,6 +298,45 @@ class ExecutionEngineTests(unittest.TestCase):
         self.assertEqual("1000", row["volume_threshold"])
         self.assertEqual("1250", row["candle_volume"])
 
+    @patch.dict("os.environ", {}, clear=True)
+    def test_cycle_backfills_cumulative_score_from_all_completed_candles(self):
+        directory = Path("output/test_artifacts")
+        paths = [
+            directory / "candles_20260710.csv",
+            directory / "execution_alerts_20260710.csv",
+            directory / "cumulative_scores_20260710.csv",
+        ]
+        for path in paths:
+            path.unlink(missing_ok=True)
+            self.addCleanup(path.unlink, missing_ok=True)
+        store = DailyOutputStore(directory, "20260710")
+        item = volume_instrument("1000")
+        result = InitializationResult("20260710", [item], [], [])
+        candles = [
+            ["2026-07-10T09:15:00+05:30", 100, 100, 100, 100, 1000, 0],
+            ["2026-07-10T09:30:00+05:30", 100, 101, 100, 101, 2000, 0],
+            ["2026-07-10T09:45:00+05:30", 101, 104, 101, 104, 4000, 0],
+        ]
+
+        evaluate_cycle(
+            result,
+            lambda _key, _symbol: candles,
+            datetime.fromisoformat("2026-07-10T10:00:00+05:30"),
+            set(),
+            set(),
+            store,
+        )
+
+        with store.candle_path.open(newline="", encoding="utf-8") as handle:
+            self.assertEqual(3, len(list(csv.DictReader(handle))))
+        with store.cumulative_score_store.path.open(
+            newline="", encoding="utf-8"
+        ) as handle:
+            rows = list(csv.DictReader(handle))
+        self.assertEqual(3, len(rows))
+        self.assertEqual("2", rows[-1]["alert_count"])
+        self.assertEqual("true", rows[-1]["alert_sent"])
+
     def test_legacy_alert_csv_is_backed_up_and_migrated(self):
         directory = Path("output/test_artifacts")
         path = directory / "execution_alerts_20990103.csv"
@@ -340,6 +379,10 @@ class ExecutionEngineTests(unittest.TestCase):
     @patch("src.execution_engine.time.sleep", side_effect=KeyboardInterrupt)
     def test_watch_handles_ctrl_c_and_returns_counts(self, _mock_sleep):
         candle = ["2026-07-13T09:15:00+05:30", 101, 102, 100.6, 101, 1000, 0]
+        watchlist = Path("output/test_artifacts/watch_test_watchlist.csv")
+        watchlist.parent.mkdir(parents=True, exist_ok=True)
+        watchlist.write_text("symbol,limit_price\nMOTILALOFS,99.95\n", encoding="utf-8")
+        self.addCleanup(watchlist.unlink, missing_ok=True)
         instruments = [{
             "segment": "NSE_EQ",
             "instrument_type": "EQ",
@@ -349,7 +392,7 @@ class ExecutionEngineTests(unittest.TestCase):
         }]
 
         evaluations, alerts = watch(
-            Path("examples/mock_watchlist_single.csv"),
+            watchlist,
             "20260713",
             lambda _key, _symbol: [candle],
             instruments=instruments,

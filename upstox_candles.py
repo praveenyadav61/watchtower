@@ -77,10 +77,10 @@ def load_mock_candles(path: Path) -> list[list[Any]]:
     return extract_candles(payload)
 
 
-def latest_completed_candle(
+def completed_candles(
     candles: list[list[Any]], now: datetime | None = None
-) -> list[Any] | None:
-    """Return the newest candle whose 15-minute period has ended."""
+) -> list[list[Any]]:
+    """Return all completed candles in chronological order."""
     parsed: list[tuple[datetime, list[Any]]] = []
 
     for candle in candles:
@@ -95,7 +95,7 @@ def latest_completed_candle(
         parsed.append((start, candle))
 
     if not parsed:
-        return None
+        return []
 
     reference_time = now or datetime.now(parsed[0][0].tzinfo)
     if reference_time.tzinfo is None:
@@ -106,7 +106,15 @@ def latest_completed_candle(
         for start, candle in parsed
         if start + timedelta(minutes=INTERVAL_MINUTES) <= reference_time
     ]
-    return max(completed, key=lambda item: item[0])[1] if completed else None
+    return [candle for _start, candle in sorted(completed, key=lambda item: item[0])]
+
+
+def latest_completed_candle(
+    candles: list[list[Any]], now: datetime | None = None
+) -> list[Any] | None:
+    """Return the newest candle whose 15-minute period has ended."""
+    completed = completed_candles(candles, now)
+    return completed[-1] if completed else None
 
 
 def print_candle(instrument_key: str, candle: list[Any]) -> None:

@@ -1,0 +1,5 @@
+{
+  "alert_threshold": 1,
+  "green_threshold": 5,
+  "display_decimals": 2
+}

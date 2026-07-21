@@ -112,12 +112,14 @@ Daily files are written automatically:
 ```text
 output/candles_YYYYMMDD.csv
 output/execution_alerts_YYYYMMDD.csv
+output/cumulative_scores_YYYYMMDD.csv
 logs/alert_engine_YYYYMMDD.log
 logs/alert_engine_errors_YYYYMMDD.log
 ```
 
-Candles and alerts are deduplicated when the engine restarts. A failure for one
-symbol is logged without terminating the remaining symbols.
+Candles, alerts, cumulative scores, histories, and per-symbol alert counts are
+restored when the engine restarts. A failure for one symbol is logged without
+terminating the remaining symbols.
 
 ## Closed-market test
 

@@ -29,8 +29,13 @@ from src.alert_rules import (
     evaluate_rules,
     load_alert_policies,
 )
+from src.cumulative_score_alert import (
+    CumulativeScoreResult,
+    CumulativeScoreStore,
+    load_cumulative_score_policy,
+)
 from src.slack_notification import send_slack_message
-from upstox_candles import fetch_candles, latest_completed_candle, load_mock_candles
+from upstox_candles import completed_candles, fetch_candles, load_mock_candles
 
 
 LOGGER = logging.getLogger("alert_engine")
@@ -38,6 +43,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MOCK_CANDLES = PROJECT_ROOT / "examples" / "mock_candles_by_symbol.json"
 CANDLE_FETCH_DELAY_SECONDS = 5
 ALERT_POLICIES = load_alert_policies(PROJECT_ROOT / "config" / "alert_policies.json")
+CUMULATIVE_SCORE_POLICY = load_cumulative_score_policy(
+    PROJECT_ROOT / "config" / "cumulative_score_policy.json"
+)
 
 
 def send_slack_execution_alert(alert: ExecutionAlert) -> bool:
@@ -89,6 +97,41 @@ def send_slack_initialization(result: InitializationResult) -> bool:
         f"unresolved {len(result.unresolved_symbols)}",
         timeout=5,
     )
+    return True
+
+
+def _score_value(value: Decimal) -> str:
+    decimals = CUMULATIVE_SCORE_POLICY.display_decimals
+    return f"{value:,.{decimals}f}"
+
+
+def cumulative_score_message(result: CumulativeScoreResult) -> str:
+    """Build the requested compact status plus full morning series."""
+    status = (
+        "🟢"
+        if result.cumulative_score > CUMULATIVE_SCORE_POLICY.green_threshold
+        else "🟡"
+    )
+    prefix = f"🆕 {status}" if result.is_new_alert else status
+    candle_time = datetime.fromisoformat(result.candle_start).strftime("%H:%M")
+    scores = " → ".join(_score_value(value) for value in result.score_history)
+    harmonics = " → ".join(
+        _score_value(value) for value in result.harmonic_history
+    )
+    return (
+        f"{prefix} {result.symbol} | CUMULATIVE SCORE "
+        f"{_score_value(result.cumulative_score)} | "
+        f"Alert #{result.alert_count} | {candle_time}\n"
+        f"Scores: {scores}\n"
+        f"Harmonic: {harmonics}"
+    )
+
+
+def send_slack_cumulative_score_alert(result: CumulativeScoreResult) -> bool:
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return False
+    send_slack_message(webhook_url, cumulative_score_message(result), timeout=5)
     return True
 
 
@@ -227,6 +270,9 @@ class DailyOutputStore:
         self._candle_keys = self._load_candle_keys()
         self._upgrade_legacy_alert_file()
         self._alert_keys, self.triggered_once = self._load_alert_state()
+        self.cumulative_score_store = CumulativeScoreStore(
+            directory, trading_date, CUMULATIVE_SCORE_POLICY
+        )
 
     def _upgrade_legacy_alert_file(self) -> None:
         """Atomically upgrade an older alert CSV while retaining a backup."""
@@ -542,6 +588,69 @@ def report_initialization(result: InitializationResult) -> None:
         )
 
 
+def report_cumulative_score(result: CumulativeScoreResult, path: Path) -> None:
+    """Log every calculation and notify only when its threshold is exceeded."""
+    if result.is_baseline:
+        LOGGER.info(
+            "Cumulative score baseline | strategy=%s | symbol=%s | candle=%s | "
+            "close=%s | path=%s",
+            result.strategy_id,
+            result.symbol,
+            result.candle_start,
+            result.current_close,
+            path,
+        )
+        return
+    LOGGER.info(
+        "Cumulative score calculated | strategy=%s | symbol=%s | candle=%s | "
+        "delta_p_pct=%s | volume_multiple=%s | contribution=%s | score=%s | "
+        "harmonic_mean=%s | alert_count=%d",
+        result.strategy_id,
+        result.symbol,
+        result.candle_start,
+        result.delta_price_pct,
+        result.volume_multiple,
+        result.score_contribution,
+        result.cumulative_score,
+        result.harmonic_mean,
+        result.alert_count,
+    )
+    if not result.alert_sent:
+        return
+    message = cumulative_score_message(result)
+    print(
+        "\nCUMULATIVE SCORE ALERT\n"
+        f"{result.symbol} | score={_score_value(result.cumulative_score)} | "
+        f"alert={result.alert_count} | candle={result.candle_start}"
+    )
+    LOGGER.info(
+        "CUMULATIVE SCORE ALERT | strategy=%s | symbol=%s | score=%s | "
+        "alert_count=%d | candle=%s",
+        result.strategy_id,
+        result.symbol,
+        result.cumulative_score,
+        result.alert_count,
+        result.candle_start,
+    )
+    try:
+        if send_slack_cumulative_score_alert(result):
+            LOGGER.info(
+                "Slack cumulative-score alert sent | strategy=%s | symbol=%s | "
+                "alert_count=%d",
+                result.strategy_id,
+                result.symbol,
+                result.alert_count,
+            )
+    except Exception:
+        LOGGER.exception(
+            "Slack cumulative-score alert failed; engine continues | "
+            "strategy=%s | symbol=%s | alert_count=%d",
+            result.strategy_id,
+            result.symbol,
+            result.alert_count,
+        )
+
+
 def evaluate_cycle(
     result: InitializationResult,
     candle_loader: Callable[[str, str], list[list[Any]]],
@@ -562,28 +671,44 @@ def evaluate_cycle(
                 instrument.instrument_key,
             )
             candles = candle_loader(instrument.instrument_key, instrument.signal.symbol)
-            candle = latest_completed_candle(candles, now)
-            if candle is None:
+            available = completed_candles(candles, now)
+            session_candles = [
+                row
+                for row in available
+                if datetime.fromisoformat(str(row[0])).strftime("%Y%m%d")
+                == result.trading_date
+            ]
+            if not session_candles:
                 LOGGER.info("No completed candle | symbol=%s", instrument.signal.symbol)
                 continue
+            if output_store is not None:
+                for completed in session_candles:
+                    completed_start = str(completed[0])
+                    written = output_store.record_candle(instrument, completed, now)
+                    if written:
+                        LOGGER.info(
+                            "Candle CSV appended | symbol=%s | candle=%s | path=%s",
+                            instrument.signal.symbol,
+                            completed_start,
+                            output_store.candle_path,
+                        )
+                    if instrument.signal.volume_threshold:
+                        score_result = output_store.cumulative_score_store.process(
+                            instrument.signal.strategy_id,
+                            instrument.signal.symbol,
+                            completed,
+                            instrument.signal.volume_threshold,
+                        )
+                        if score_result is not None:
+                            report_cumulative_score(
+                                score_result, output_store.cumulative_score_store.path
+                            )
+            candle = session_candles[-1]
             candle_start = str(candle[0])
             processed_key = (*identity, candle_start)
             if processed_key in processed:
                 continue
-            if datetime.fromisoformat(candle_start).strftime("%Y%m%d") != result.trading_date:
-                raise ValueError(
-                    f"candle date does not match trading date {result.trading_date}"
-                )
             processed.add(processed_key)
-            if output_store is not None:
-                written = output_store.record_candle(instrument, candle, now)
-                LOGGER.info(
-                    "Candle CSV %s | symbol=%s | candle=%s | path=%s",
-                    "appended" if written else "already stored",
-                    instrument.signal.symbol,
-                    candle_start,
-                    output_store.candle_path,
-                )
             for item in evaluate_all(instrument, candle):
                 once_key = (*identity, item.rule_id)
                 if item.repeat_mode == ONCE_PER_DAY and once_key in alerted:
