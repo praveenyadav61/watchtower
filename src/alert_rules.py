@@ -13,7 +13,8 @@ from src.daily_initialization import ResolvedInstrument
 
 ONCE_PER_DAY = "ONCE_PER_DAY"
 EVERY_MATCHING_CANDLE = "EVERY_MATCHING_CANDLE"
-VALID_REPEAT_MODES = {ONCE_PER_DAY, EVERY_MATCHING_CANDLE}
+DISABLED = "DISABLED"
+VALID_REPEAT_MODES = {ONCE_PER_DAY, EVERY_MATCHING_CANDLE, DISABLED}
 DEFAULT_POLICIES = {
     "volume_threshold": EVERY_MATCHING_CANDLE,
     "price_low_limit": ONCE_PER_DAY,
@@ -151,4 +152,5 @@ def evaluate_rules(
             matched_reason,
             wait_reason,
         ) in configured
+        if policies[rule_id] != DISABLED
     ]

@@ -1,5 +1,5 @@
 {
-  "volume_threshold": "EVERY_MATCHING_CANDLE",
+  "volume_threshold": "DISABLED",
   "price_low_limit": "ONCE_PER_DAY",
   "price_high_limit": "ONCE_PER_DAY",
   "ema20": "ONCE_PER_DAY"

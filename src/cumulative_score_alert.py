@@ -73,8 +73,10 @@ def load_cumulative_score_policy(path: Path) -> CumulativeScorePolicy:
         raise ValueError("cumulative-score policy contains invalid values") from exc
     if alert_threshold < 0:
         raise ValueError("cumulative-score alert_threshold cannot be negative")
-    if green_threshold <= alert_threshold:
-        raise ValueError("cumulative-score green_threshold must exceed alert_threshold")
+    if green_threshold < alert_threshold:
+        raise ValueError(
+            "cumulative-score green_threshold cannot be below alert_threshold"
+        )
     if not 0 <= display_decimals <= 6:
         raise ValueError("cumulative-score display_decimals must be between 0 and 6")
     return CumulativeScorePolicy(alert_threshold, green_threshold, display_decimals)

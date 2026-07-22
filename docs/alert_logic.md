@@ -15,7 +15,7 @@ alerts have fired.
 
 | CSV column | Trigger condition | Default repeat policy |
 | --- | --- | --- |
-| `volume_threshold` | candle volume >= threshold | Every matching candle |
+| `volume_threshold` | Input for cumulative score; no standalone alert | Disabled |
 | `price_low_limit` | candle low <= limit | Once per day |
 | `price_high_limit` | candle high >= limit | Once per day |
 | `ema20` | candle low <= EMA20 <= candle high | Once per day |
@@ -27,21 +27,16 @@ column is required.
 `limit_price` remains a backward-compatible alias for `price_low_limit`. Do not
 provide both names on the same row.
 
-## Volume threshold
+## Volume threshold input
 
 Volume is the volume of one completed 15-minute candle, not cumulative daily
-volume. Every candle meeting the threshold generates a new alert.
+volume. It is divided by `volume_threshold` to calculate the cumulative-score
+volume multiple. It does not generate a separate volume alert.
 
-Slack includes the threshold multiple:
+The multiple is:
 
 ```text
 multiple = candle volume / volume threshold
-```
-
-Example:
-
-```text
-🔔 HSCL | VOLUME 2,920,156 ≥ 2,068,781 | 1.41x | 09:45
 ```
 
 ## Price low limit
@@ -119,15 +114,16 @@ harmonic_mean = sign(delta_p) × harmonic_magnitude
 
 The harmonic mean is zero when either input is zero.
 
-An alert is sent on every completed candle whose cumulative score is above 1.
-The alert count belongs to that symbol and increments only when an alert is
-sent. `🆕` marks alert number one, `🟡` marks scores above 1 through 5, and `🟢`
-marks scores above 5.
+An alert is sent on every completed candle whose cumulative score is strictly
+above 5. Scores from 1 through 5 are calculated and stored but do not produce
+notifications. The alert count belongs to that symbol and increments only when
+an alert is sent. `🆕` marks alert number one and `🟢` marks every cumulative
+score alert.
 
 ```text
-🆕 🟡 ADANIENT | CUMULATIVE SCORE 1.24 | Alert #1 | 10:15
-Scores: 0.20 → 0.68 → 1.24
-Harmonic: 0.31 → 0.72 → 0.94
+🆕 🟢 ADANIENT | CUMULATIVE SCORE 5.24 | Alert #1 | 10:15
+Scores: 0.20 → 0.68 → 1.24 → 5.24
+Harmonic: 0.31 → 0.72 → 0.94 → 1.18
 ```
 
 Both complete morning series are included in every cumulative-score Slack

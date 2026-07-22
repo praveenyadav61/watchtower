@@ -136,43 +136,13 @@ class ExecutionEngineTests(unittest.TestCase):
         self.assertEqual("WAIT", result.outcome)
         self.assertIsNone(result.assumed_entry_price)
 
-    def test_volume_threshold_triggers_on_completed_candle_volume(self):
-        result = evaluate(
+    def test_volume_threshold_is_not_a_standalone_rule(self):
+        evaluations = evaluate_all(
             volume_instrument("1000"),
             ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1250, 0],
         )
 
-        self.assertEqual("ENTER", result.outcome)
-        self.assertEqual("VOLUME", result.alert_type)
-        self.assertEqual(Decimal("1000"), result.volume_threshold)
-        self.assertEqual(Decimal("1250"), result.candle_volume)
-
-    def test_volume_threshold_waits_below_threshold(self):
-        result = evaluate(
-            volume_instrument("1000"),
-            ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 999, 0],
-        )
-
-        self.assertEqual("WAIT", result.outcome)
-        self.assertEqual("VOLUME", result.alert_type)
-
-    @patch("src.execution_engine.send_slack_message")
-    @patch.dict(
-        "os.environ",
-        {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/T/B/SECRET"},
-        clear=False,
-    )
-    def test_slack_volume_alert_contains_threshold_and_actual_volume(self, mock_send):
-        candle = ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1250, 0]
-        item = volume_instrument("1000")
-        alert = build_alert(item, candle, evaluate(item, candle))
-
-        self.assertTrue(send_slack_execution_alert(alert))
-        message = mock_send.call_args.args[1]
-        self.assertEqual(
-            "🔔 ABC | VOLUME 1,250 ≥ 1,000 | 1.25x | 09:30",
-            message,
-        )
+        self.assertEqual([], evaluations)
 
     def test_rejects_signal_without_any_rule(self):
         with self.assertRaisesRegex(ValueError, "no configured alert rule"):
@@ -191,14 +161,14 @@ class ExecutionEngineTests(unittest.TestCase):
 
         evaluations = evaluate_all(item, candle)
 
-        self.assertEqual(4, len(evaluations))
+        self.assertEqual(3, len(evaluations))
         self.assertEqual(
-            {"volume_threshold", "price_low_limit", "price_high_limit", "ema20"},
+            {"price_low_limit", "price_high_limit", "ema20"},
             {evaluation.rule_id for evaluation in evaluations},
         )
         self.assertTrue(all(evaluation.outcome == "ENTER" for evaluation in evaluations))
 
-    def test_volume_repeats_but_price_and_ema_alert_only_once(self):
+    def test_price_and_ema_alert_only_once_when_volume_alert_is_disabled(self):
         signal = AcceptedSignal(
             2, "20260710", "multi", "ABC", "BUY", 1, "", "", "1000",
             "100", "102", "101",
@@ -223,8 +193,8 @@ class ExecutionEngineTests(unittest.TestCase):
             triggered_once, processed,
         )
 
-        self.assertEqual(4, len(first_alerts))
-        self.assertEqual(["volume_threshold"], [alert.rule_id for alert in second_alerts])
+        self.assertEqual(3, len(first_alerts))
+        self.assertEqual([], second_alerts)
 
     def test_one_symbol_failure_does_not_stop_other_symbols(self):
         broken = instrument()
@@ -280,24 +250,6 @@ class ExecutionEngineTests(unittest.TestCase):
             restarted.triggered_once,
         )
 
-    def test_volume_alert_csv_contains_volume_details(self):
-        candle = ["2026-07-10T09:30:00+05:30", 101, 103, 100, 102, 1250, 0]
-        item = volume_instrument("1000")
-        alert = build_alert(item, candle, evaluate(item, candle))
-        directory = Path("output/test_artifacts")
-        store = DailyOutputStore(directory, "20990102")
-        store.alert_path.unlink(missing_ok=True)
-        store = DailyOutputStore(directory, "20990102")
-        self.addCleanup(store.alert_path.unlink, missing_ok=True)
-
-        store.record_alert(alert)
-
-        with store.alert_path.open(newline="", encoding="utf-8") as handle:
-            row = next(csv.DictReader(handle))
-        self.assertEqual("VOLUME", row["alert_type"])
-        self.assertEqual("1000", row["volume_threshold"])
-        self.assertEqual("1250", row["candle_volume"])
-
     @patch.dict("os.environ", {}, clear=True)
     def test_cycle_backfills_cumulative_score_from_all_completed_candles(self):
         directory = Path("output/test_artifacts")
@@ -334,7 +286,7 @@ class ExecutionEngineTests(unittest.TestCase):
         ) as handle:
             rows = list(csv.DictReader(handle))
         self.assertEqual(3, len(rows))
-        self.assertEqual("2", rows[-1]["alert_count"])
+        self.assertEqual("1", rows[-1]["alert_count"])
         self.assertEqual("true", rows[-1]["alert_sent"])
 
     def test_legacy_alert_csv_is_backed_up_and_migrated(self):

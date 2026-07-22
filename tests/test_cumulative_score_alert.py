@@ -18,7 +18,7 @@ class CumulativeScoreAlertTests(unittest.TestCase):
         self.path = self.directory / "cumulative_scores_20990104.csv"
         self.path.unlink(missing_ok=True)
         self.addCleanup(self.path.unlink, missing_ok=True)
-        self.policy = CumulativeScorePolicy(Decimal("1"), Decimal("5"), 2)
+        self.policy = CumulativeScorePolicy(Decimal("5"), Decimal("5"), 2)
 
     def test_signed_harmonic_mean_handles_positive_negative_and_zero(self):
         self.assertEqual(
@@ -52,14 +52,14 @@ class CumulativeScoreAlertTests(unittest.TestCase):
         self.assertTrue(baseline.is_baseline)
         self.assertEqual(Decimal("2.00"), first.score_contribution)
         self.assertEqual(Decimal("2.00"), first.cumulative_score)
-        self.assertEqual(1, first.alert_count)
-        self.assertTrue(first.is_new_alert)
+        self.assertEqual(0, first.alert_count)
+        self.assertFalse(first.alert_sent)
         self.assertGreater(second.cumulative_score, Decimal("5"))
-        self.assertEqual(2, second.alert_count)
+        self.assertEqual(1, second.alert_count)
+        self.assertTrue(second.is_new_alert)
         self.assertEqual(2, len(second.score_history))
         self.assertEqual(2, len(second.harmonic_history))
-        self.assertIn("🆕 🟡 ABC | CUMULATIVE SCORE 2.00 | Alert #1", cumulative_score_message(first))
-        self.assertIn("🟢 ABC | CUMULATIVE SCORE", cumulative_score_message(second))
+        self.assertIn("🆕 🟢 ABC | CUMULATIVE SCORE", cumulative_score_message(second))
 
     def test_restart_restores_state_and_deduplicates_candles(self):
         first_store = CumulativeScoreStore(self.directory, "20990104", self.policy)
@@ -77,7 +77,7 @@ class CumulativeScoreAlertTests(unittest.TestCase):
         )
 
         self.assertIsNone(duplicate)
-        self.assertEqual(2, next_result.alert_count)
+        self.assertEqual(0, next_result.alert_count)
         self.assertEqual(first_result.cumulative_score, next_result.score_history[0])
         with self.path.open(newline="", encoding="utf-8") as handle:
             self.assertEqual(3, len(list(csv.DictReader(handle))))

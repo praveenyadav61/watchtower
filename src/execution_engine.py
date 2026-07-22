@@ -107,11 +107,7 @@ def _score_value(value: Decimal) -> str:
 
 def cumulative_score_message(result: CumulativeScoreResult) -> str:
     """Build the requested compact status plus full morning series."""
-    status = (
-        "🟢"
-        if result.cumulative_score > CUMULATIVE_SCORE_POLICY.green_threshold
-        else "🟡"
-    )
+    status = "🟢"
     prefix = f"🆕 {status}" if result.is_new_alert else status
     candle_time = datetime.fromisoformat(result.candle_start).strftime("%H:%M")
     scores = " → ".join(_score_value(value) for value in result.score_history)
