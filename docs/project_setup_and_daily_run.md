@@ -103,6 +103,28 @@ checks shortly after every 15-minute candle boundary. Windows sleep prevention
 and macOS `caffeinate` remain active while the launch script is running. Keep a
 laptop powered and do not close its lid.
 
+Before connecting to Upstox, both launch scripts automatically run an isolated
+cumulative-score mock preflight. It validates candle ordering, score and
+harmonic calculations, the score-above-5 alert, per-symbol alert count,
+persistence, and restart deduplication. It cannot send Slack or modify live
+daily output. A failed preflight stops the live launch.
+
+Run the same preflight manually at any time:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.preflight_check
+```
+
+```bash
+.venv/bin/python -m src.preflight_check
+```
+
+Expected result:
+
+```text
+PRE-FLIGHT PASSED: cumulative-score mock flow is healthy.
+```
+
 Stop cleanly with `Ctrl+C`.
 
 ## Outputs

@@ -26,6 +26,12 @@ if (-not $env:UPSTOX_ACCESS_TOKEN) {
     throw 'UPSTOX_ACCESS_TOKEN is not set. Set it before running: $env:UPSTOX_ACCESS_TOKEN = "your-token"'
 }
 
+Write-Host "Running isolated cumulative-score mock preflight..."
+& ".\.venv\Scripts\python.exe" -m src.preflight_check
+if ($LASTEXITCODE -ne 0) {
+    throw "Mock preflight failed. Live engine was not started."
+}
+
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;

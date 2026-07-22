@@ -25,5 +25,11 @@ if [[ -z "${UPSTOX_ACCESS_TOKEN:-}" ]]; then
   exit 1
 fi
 
+echo "Running isolated cumulative-score mock preflight..."
+if ! .venv/bin/python -m src.preflight_check; then
+  echo "Mock preflight failed. Live engine was not started." >&2
+  exit 1
+fi
+
 echo "Starting live alert engine with $WATCHLIST..."
 exec caffeinate -dimsu .venv/bin/python -m src.execution_engine "$WATCHLIST" --watch
