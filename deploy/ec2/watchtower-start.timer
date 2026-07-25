@@ -1,0 +1,9 @@
+[Unit]
+Description=Start Watchtower before Indian market hours
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08:45:00 Asia/Kolkata
+Unit=watchtower-start.service
+
+[Install]
+WantedBy=timers.target

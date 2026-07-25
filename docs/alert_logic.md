@@ -1,132 +1,151 @@
 # Alert Logic
 
-The watchlist CSV is the alert configuration. Each non-empty supported column
-activates an independent rule for that symbol. Multiple rules may be active on
-the same row.
+The daily watchlist CSV is the alert configuration. Each supported non-empty
+column activates its rule for that symbol.
 
 ## Candle processing
 
-The engine fetches Upstox intraday candles shortly after each 15-minute
-boundary and evaluates only the newest completed candle. A forming candle is
-never evaluated. Every completed candle is stored once, even after one-time
-alerts have fired.
+Watchtower fetches Upstox intraday candles shortly after every 15-minute
+boundary. It evaluates completed candles only and stores each completed candle
+once. On a late start or restart, it processes missing completed candles in
+chronological order.
 
-## Supported columns
+An API or candle error for one symbol is isolated and logged. Other symbols
+continue, and the failed symbol is tried again during the next cycle.
 
-| CSV column | Trigger condition | Default repeat policy |
+## Watchlist columns
+
+| Column | Purpose | Alert behavior |
 | --- | --- | --- |
-| `volume_threshold` | Input for cumulative score; no standalone alert | Disabled |
-| `price_low_limit` | candle low <= limit | Once per day |
-| `price_high_limit` | candle high >= limit | Once per day |
-| `ema20` | candle low <= EMA20 <= candle high | Once per day |
+| `symbol` | Exchange trading symbol | Required |
+| `volume_threshold` | Volume input for cumulative score | Cumulative alerts |
+| `price_low_limit` | Candle low is at or below the value | Once per day |
+| `price_high_limit` | Candle high is at or above the value | Once per day |
+| `ema20` | EMA20 lies inside the candle range | Once per day |
 
-Every row containing `volume_threshold` also activates the special cumulative
-score described below. It uses the same daily watchlist; no separate file or
-column is required.
+`limit_price` is a backward-compatible alias for `price_low_limit`. Do not put
+both names in the same CSV.
 
-`limit_price` remains a backward-compatible alias for `price_low_limit`. Do not
-provide both names on the same row.
+To receive cumulative-score alerts only, use:
 
-## Volume threshold input
-
-Volume is the volume of one completed 15-minute candle, not cumulative daily
-volume. It is divided by `volume_threshold` to calculate the cumulative-score
-volume multiple. It does not generate a separate volume alert.
-
-The multiple is:
-
-```text
-multiple = candle volume / volume threshold
+```csv
+symbol,volume_threshold
+ADANIENT,500000
 ```
 
-## Price low limit
-
-The rule triggers when the candle low touches or falls below the configured
-limit. It alerts once per symbol, strategy, and trading day.
-
-```text
-🔔 MAPMYINDIA | LOW 1,122.6 ≤ 1,137.86 | 09:45
-```
-
-## Price high limit
-
-The rule triggers when the candle high touches or rises above the configured
-limit. It alerts once per symbol, strategy, and trading day.
-
-```text
-🔔 AEGISLOG | HIGH 1,430.0 ≥ 1,389.57 | 09:45
-```
-
-## EMA20 crossing
-
-The engine does not calculate EMA20. The CSV must contain the EMA20 value
-calculated from daily candles through the previous trading day. The rule
-triggers when that fixed level lies within the completed candle's low-to-high
-range.
-
-```text
-🔔 INDIGO | EMA20 crossed 5,160.72 | close 5,164.5 | 09:45
-```
-
-## Repeat policies and deduplication
-
-Repeat modes are configured in `config/alert_policies.json`:
-
-- `EVERY_MATCHING_CANDLE`: alert on each new candle that matches.
-- `ONCE_PER_DAY`: stop that rule after its first alert for the day.
-
-Rules are tracked independently. A volume alert does not disable a price or EMA
-rule for the same symbol. Persisted alert keys prevent the same rule and candle
-from being sent again after a restart.
-
-## Notifications and failure handling
-
-Successful initialization produces one compact Slack status message. Only
-triggered alerts go to Slack; WAIT evaluations remain in console and file logs.
-Console, alert CSV, and Slack all use the same evaluated rule result.
-
-An API or candle error for one symbol is logged and isolated. Other symbols
-continue processing, and the failed symbol is retried at the next scheduled
-cycle.
+Adding a price or EMA column activates that additional alert independently.
 
 ## Cumulative score
 
-The first completed candle establishes the previous-close baseline. Starting
-with the second completed candle, the engine calculates:
+The first completed candle establishes the previous-close baseline. For each
+later completed candle:
 
 ```text
-delta_p = ((current close - previous close) / previous close) × 100
-volume_multiple = candle volume / volume_threshold
-score_contribution = delta_p × volume_multiple
-cumulative_score = previous cumulative_score + score_contribution
+delta_p = ((current_close - previous_close) / previous_close) * 100
+volume_multiple = candle_volume / volume_threshold
+score_contribution = delta_p * volume_multiple
+cumulative_score = previous_cumulative_score + score_contribution
 ```
 
-All completed candles from the beginning of the session are processed in time
-order, including after a late start or restart. Positive price change increases
-the score; negative price change reduces it.
+`delta_p` is the percentage price change from the previous completed candle.
+Positive changes increase the cumulative score and negative changes reduce it.
 
-The signed harmonic mean for each candle is:
+The signed harmonic mean is:
 
 ```text
-harmonic_magnitude = 2 / ((1 / abs(delta_p)) + (1 / volume_multiple))
-harmonic_mean = sign(delta_p) × harmonic_magnitude
+harmonic_magnitude =
+    2 / ((1 / abs(delta_p)) + (1 / volume_multiple))
+
+harmonic_mean = sign(delta_p) * harmonic_magnitude
 ```
 
-The harmonic mean is zero when either input is zero.
+It is zero when either input is zero.
 
-An alert is sent on every completed candle whose cumulative score is strictly
-above 5. Scores from 1 through 5 are calculated and stored but do not produce
-notifications. The alert count belongs to that symbol and increments only when
-an alert is sent. `🆕` marks alert number one and `🟢` marks every cumulative
-score alert.
+The current configuration sends an alert on every completed candle whose
+cumulative score is strictly greater than 5. The per-symbol alert count
+increases only when an alert is sent. The first alert is marked as new.
+
+Every cumulative alert includes:
+
+- symbol;
+- current cumulative score;
+- alert count;
+- candle time;
+- cumulative-score history from the morning;
+- harmonic-mean history from the morning.
+
+All calculations are stored in:
 
 ```text
-🆕 🟢 ADANIENT | CUMULATIVE SCORE 5.24 | Alert #1 | 10:15
-Scores: 0.20 → 0.68 → 1.24 → 5.24
-Harmonic: 0.31 → 0.72 → 0.94 → 1.18
+output/cumulative_scores_YYYYMMDD.csv
 ```
 
-Both complete morning series are included in every cumulative-score Slack
-alert. Every calculation is persisted in
-`output/cumulative_scores_YYYYMMDD.csv`. Thresholds and display precision live
-in `config/cumulative_score_policy.json`.
+Threshold and display settings are in:
+
+```text
+config/cumulative_score_policy.json
+```
+
+## Price-low alert
+
+Triggers when:
+
+```text
+candle_low <= price_low_limit
+```
+
+It alerts once per symbol, strategy, and trading day.
+
+## Price-high alert
+
+Triggers when:
+
+```text
+candle_high >= price_high_limit
+```
+
+It alerts once per symbol, strategy, and trading day.
+
+## EMA20 alert
+
+Watchtower does not calculate EMA20. Supply the EMA20 calculated from daily
+candles through the previous trading day.
+
+It triggers when:
+
+```text
+candle_low <= ema20 <= candle_high
+```
+
+It alerts once per symbol, strategy, and trading day.
+
+## Repeat and deduplication
+
+Rule repetition is configured in:
+
+```text
+config/alert_policies.json
+```
+
+Supported modes:
+
+- `ONCE_PER_DAY`: the rule stops after its first alert that day.
+- `EVERY_MATCHING_CANDLE`: every new matching completed candle alerts.
+- `DISABLED`: the standalone rule does not alert.
+
+Rules are tracked independently. Persisted alert and candle keys prevent the
+same event from being sent again after a restart.
+
+`volume_threshold` is currently `DISABLED` as a standalone volume alert. It is
+still used by the cumulative-score calculation.
+
+## Notifications
+
+Slack receives:
+
+1. One compact successful-initialization message.
+2. Each cumulative-score alert above its configured threshold.
+3. Price or EMA alerts only when those columns are present and enabled.
+
+WAIT evaluations are written to console and operational logs, not Slack.
+Slack failure is logged and does not stop candle processing or CSV output.

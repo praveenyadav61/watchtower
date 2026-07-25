@@ -1,0 +1,11 @@
+[Unit]
+Description=Pull and start the latest Watchtower production image
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/watchtower deploy
+TimeoutStartSec=10min
+

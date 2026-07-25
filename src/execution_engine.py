@@ -822,6 +822,21 @@ def run(
     return evaluations, alerts
 
 
+def market_cutoff_for(now: datetime) -> datetime:
+    value = os.getenv("MARKET_CUTOFF_TIME", "15:30").strip()
+    try:
+        hour_text, minute_text = value.split(":", maxsplit=1)
+        hour = int(hour_text)
+        minute = int(minute_text)
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "MARKET_CUTOFF_TIME must use 24-hour HH:MM format"
+        ) from exc
+    return now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
 def watch(
     watchlist: Path,
     trading_date: str,
@@ -867,7 +882,7 @@ def watch(
                 now = datetime.now(MARKET_TIMEZONE)
                 if now.strftime("%Y%m%d") != trading_date:
                     raise ValueError("live watch trading date must be today in Asia/Kolkata")
-                cutoff = now.replace(hour=15, minute=0, second=0, microsecond=0)
+                cutoff = market_cutoff_for(now)
                 if now.hour > 9 or (now.hour == 9 and now.minute >= 30):
                     evaluations, alerts = evaluate_cycle(
                         result, candle_loader, now, alerted, processed, output_store

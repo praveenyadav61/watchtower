@@ -1,5 +1,6 @@
 .git
 .agents
+.github
 .venv
 __pycache__
 *.py[cod]
@@ -15,3 +16,12 @@ watchlist_*.csv
 .DS_Store
 .idea
 .vscode
+deploy
+docs
+scripts
+tests
+README.md
+setup.ps1
+setup.sh
+run_live.ps1
+run_live.sh

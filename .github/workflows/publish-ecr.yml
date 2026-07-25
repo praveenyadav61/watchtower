@@ -1,7 +1,14 @@
 name: Publish Watchtower Image
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
+
+concurrency:
+  group: publish-watchtower-main
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -32,6 +39,9 @@ jobs:
 
       - name: Run unit tests
         run: python -m unittest discover -s tests
+
+      - name: Validate shell scripts
+        run: bash -n setup.sh run_live.sh run_container.sh scripts/*.sh
 
       - name: Build container image
         run: docker build --tag watchtower:validation .

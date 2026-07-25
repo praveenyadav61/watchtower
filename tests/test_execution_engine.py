@@ -12,6 +12,7 @@ from src.execution_engine import (
     evaluate,
     evaluate_all,
     evaluate_cycle,
+    market_cutoff_for,
     runtime_directory,
     send_slack_execution_alert,
     send_slack_initialization,
@@ -49,6 +50,29 @@ def volume_instrument(volume_threshold="1000"):
 
 
 class ExecutionEngineTests(unittest.TestCase):
+    @patch.dict("os.environ", {}, clear=True)
+    def test_market_cutoff_defaults_to_full_session(self):
+        now = datetime.fromisoformat("2026-07-20T14:12:30+05:30")
+
+        self.assertEqual(
+            datetime.fromisoformat("2026-07-20T15:30:00+05:30"),
+            market_cutoff_for(now),
+        )
+
+    @patch.dict("os.environ", {"MARKET_CUTOFF_TIME": "14:45"}, clear=False)
+    def test_market_cutoff_can_be_configured(self):
+        now = datetime.fromisoformat("2026-07-20T14:12:30+05:30")
+
+        self.assertEqual(
+            datetime.fromisoformat("2026-07-20T14:45:00+05:30"),
+            market_cutoff_for(now),
+        )
+
+    @patch.dict("os.environ", {"MARKET_CUTOFF_TIME": "invalid"}, clear=False)
+    def test_market_cutoff_rejects_invalid_value(self):
+        with self.assertRaisesRegex(ValueError, "24-hour HH:MM"):
+            market_cutoff_for(datetime.now())
+
     @patch.dict(
         "os.environ",
         {"WATCHTOWER_DATA_DIR": "/data/watchtower"},
