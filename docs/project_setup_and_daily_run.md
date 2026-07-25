@@ -3,6 +3,20 @@
 This is the complete installation and daily-operation guide for Windows and
 macOS. Run commands from the project root.
 
+## GitHub container validation
+
+Before creating AWS resources, run the manual GitHub workflow:
+
+1. Open the repository on GitHub.
+2. Select **Actions**.
+3. Select **Validate Watchtower Container**.
+4. Select **Run workflow** and run it from `main`.
+
+The workflow runs all unit tests, builds the Linux image, and executes the
+closed-market `mock-test` inside the image. It does not connect to AWS, Upstox,
+or Slack and is manual-only so it does not consume Actions minutes after every
+push.
+
 ## Container run
 
 This is the AWS-ready, command-based runtime. It does not schedule or keep any
