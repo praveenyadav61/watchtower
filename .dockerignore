@@ -1,0 +1,17 @@
+.git
+.agents
+.venv
+__pycache__
+*.py[cod]
+.env
+.env.*
+logs
+logs_previous
+output
+output_previous
+tmp*
+watchlist.csv
+watchlist_*.csv
+.DS_Store
+.idea
+.vscode

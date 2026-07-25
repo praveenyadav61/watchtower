@@ -3,6 +3,97 @@
 This is the complete installation and daily-operation guide for Windows and
 macOS. Run commands from the project root.
 
+## Container run
+
+This is the AWS-ready, command-based runtime. It does not schedule or keep any
+paid AWS service running by itself.
+
+Build once after cloning or changing dependencies:
+
+```bash
+docker build -t watchtower:local .
+```
+
+Create a local runtime directory and copy today's watchlist into it:
+
+```bash
+mkdir -p runtime
+cp watchlist_YYYYMMDD.csv runtime/
+```
+
+Run on macOS or Linux:
+
+```bash
+docker run --rm --name watchtower \
+  -e UPSTOX_ACCESS_TOKEN \
+  -e SLACK_WEBHOOK_URL \
+  -v "$(pwd)/runtime:/data" \
+  watchtower:local
+```
+
+Run from Windows PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force .\runtime | Out-Null
+Copy-Item .\watchlist_YYYYMMDD.csv .\runtime\
+docker run --rm --name watchtower `
+  -e UPSTOX_ACCESS_TOKEN `
+  -e SLACK_WEBHOOK_URL `
+  -v "${PWD}\runtime:/data" `
+  watchtower:local
+```
+
+The container automatically selects `/data/watchlist_YYYYMMDD.csv`, runs the
+isolated mock preflight, and starts live watch mode. Outputs are retained under
+`runtime/output` and `runtime/logs` after the container stops. Credentials are
+passed from the current shell and are not stored in the image.
+
+### Closed-market container test
+
+The same image has an isolated `mock-test` command for weekends and closed
+markets. It uses the bundled alert-producing watchlist, candles, and instrument
+list. It does not call Upstox or require `UPSTOX_ACCESS_TOKEN`.
+
+macOS or Linux:
+
+```bash
+docker run --rm --name watchtower-mock \
+  -e SLACK_WEBHOOK_URL \
+  -v "$(pwd)/runtime:/data" \
+  watchtower:local mock-test
+```
+
+Windows PowerShell:
+
+```powershell
+docker run --rm --name watchtower-mock `
+  -e SLACK_WEBHOOK_URL `
+  -v "${PWD}\runtime:/data" `
+  watchtower:local mock-test
+```
+
+Expected results:
+
+- `PRE-FLIGHT PASSED` in the console
+- one Slack initialization notification
+- one cumulative-score Slack alert for `MOTILALOFS`
+- mock candle and cumulative-score CSV files under `runtime/output`
+- operational logs under `runtime/logs`
+
+The AWS ECS task can run this exact image by overriding its container command
+with `mock-test`. A fresh task filesystem should be used for each mock run so a
+previous persisted test alert does not suppress the duplicate.
+
+To use a differently named watchlist, pass its container path:
+
+```bash
+docker run --rm --name watchtower \
+  -e UPSTOX_ACCESS_TOKEN \
+  -e SLACK_WEBHOOK_URL \
+  -v "$(pwd)/runtime:/data" \
+  watchtower:local /data/my_watchlist.csv
+```
+
 ## Watchlist
 
 Create the daily CSV in the project root using the current India-market date:

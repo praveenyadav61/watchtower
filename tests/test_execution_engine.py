@@ -12,6 +12,7 @@ from src.execution_engine import (
     evaluate,
     evaluate_all,
     evaluate_cycle,
+    runtime_directory,
     send_slack_execution_alert,
     send_slack_initialization,
     watch,
@@ -48,6 +49,14 @@ def volume_instrument(volume_threshold="1000"):
 
 
 class ExecutionEngineTests(unittest.TestCase):
+    @patch.dict(
+        "os.environ",
+        {"WATCHTOWER_DATA_DIR": "/data/watchtower"},
+        clear=False,
+    )
+    def test_runtime_directory_can_be_configured_for_container_storage(self):
+        self.assertEqual(Path("/data/watchtower"), runtime_directory())
+
     @patch("src.execution_engine.send_slack_message")
     @patch.dict(
         "os.environ",

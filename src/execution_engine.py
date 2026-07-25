@@ -11,6 +11,7 @@ import os
 import json
 import logging
 from pathlib import Path
+import signal
 import shutil
 import sys
 import time
@@ -46,6 +47,20 @@ ALERT_POLICIES = load_alert_policies(PROJECT_ROOT / "config" / "alert_policies.j
 CUMULATIVE_SCORE_POLICY = load_cumulative_score_policy(
     PROJECT_ROOT / "config" / "cumulative_score_policy.json"
 )
+
+
+class TerminationRequested(Exception):
+    """Raised when the operating environment requests a graceful shutdown."""
+
+
+def _handle_termination_signal(signum: int, _frame: Any) -> None:
+    raise TerminationRequested(f"received signal {signum}")
+
+
+def runtime_directory() -> Path:
+    """Return the configurable root used for persistent logs and output."""
+    configured = os.environ.get("WATCHTOWER_DATA_DIR", "").strip()
+    return Path(configured).expanduser() if configured else PROJECT_ROOT
 
 
 def send_slack_execution_alert(alert: ExecutionAlert) -> bool:
@@ -873,9 +888,13 @@ def watch(
                 seconds = max(1.0, (next_check - now).total_seconds())
                 LOGGER.info("Next candle check at %s", next_check.isoformat())
                 time.sleep(seconds)
-    except KeyboardInterrupt:
-        shutdown_reason = "user_interrupt"
-        LOGGER.warning("Ctrl+C received; shutting down cleanly")
+    except (KeyboardInterrupt, TerminationRequested) as exc:
+        shutdown_reason = (
+            "user_interrupt" if isinstance(exc, KeyboardInterrupt) else "termination_signal"
+        )
+        LOGGER.warning(
+            "Shutdown requested; stopping cleanly | reason=%s", shutdown_reason
+        )
     finally:
         summary = (
             f"Watch stopped | reason={shutdown_reason} | "
@@ -888,6 +907,9 @@ def watch(
 
 
 def main() -> int:
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _handle_termination_signal)
+
     parser = argparse.ArgumentParser(description="Run the basic execution-alert flow.")
     parser.add_argument("watchlist", type=Path)
     parser.add_argument(
@@ -917,11 +939,13 @@ def main() -> int:
     )
     args = parser.parse_args()
     trading_date = args.trading_date or current_business_date()
+    data_directory = runtime_directory()
     log_path, error_log_path = configure_logging(
-        trading_date, PROJECT_ROOT / "logs"
+        trading_date, data_directory / "logs"
     )
     LOGGER.info("=" * 78)
     LOGGER.info("Alert engine starting | trading_date=%s", trading_date)
+    LOGGER.info("Runtime data directory | path=%s", data_directory)
     LOGGER.info("Daily log file | path=%s", log_path)
     LOGGER.info("Error-only log file | path=%s", error_log_path)
     if os.environ.get("SLACK_WEBHOOK_URL", "").strip():
@@ -956,7 +980,7 @@ def main() -> int:
             return 2
         loader = lambda key, _symbol: fetch_candles(key, token)
     try:
-        output_store = DailyOutputStore(PROJECT_ROOT / "output", trading_date)
+        output_store = DailyOutputStore(data_directory / "output", trading_date)
         LOGGER.info("Candle CSV | path=%s", output_store.candle_path)
         LOGGER.info("Alert CSV | path=%s", output_store.alert_path)
         instruments = None
@@ -998,9 +1022,9 @@ def main() -> int:
             len(alerts),
         )
         return 0
-    except KeyboardInterrupt:
-        LOGGER.warning("Ctrl+C received outside watch loop; shutdown complete")
-        print("\nEngine stopped by user before the run completed.")
+    except (KeyboardInterrupt, TerminationRequested):
+        LOGGER.warning("Shutdown requested outside watch loop; shutdown complete")
+        print("\nEngine stopped cleanly before the run completed.")
         return 130
     except (OSError, json.JSONDecodeError, RuntimeError, ValueError) as exc:
         LOGGER.error("Run failed | %s", exc)
