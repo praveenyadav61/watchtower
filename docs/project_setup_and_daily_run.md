@@ -17,6 +17,64 @@ closed-market `mock-test` inside the image. It does not connect to AWS, Upstox,
 or Slack and is manual-only so it does not consume Actions minutes after every
 push.
 
+## Publish the image to AWS ECR
+
+The manual **Publish Watchtower Image** workflow validates the project again,
+authenticates with short-lived GitHub OIDC credentials, and pushes one image
+tagged with the Git commit SHA and workflow run identifiers. It does not create
+or run an ECS task.
+
+AWS prerequisites in region `ap-south-1`:
+
+1. Create a private ECR repository named `watchtower`.
+2. Configure tag mutability as **Immutable** and encryption as **AES-256**.
+3. Add the GitHub OIDC identity provider in IAM:
+   - Provider URL: `https://token.actions.githubusercontent.com`
+   - Audience: `sts.amazonaws.com`
+4. Create an IAM web-identity role named `WatchtowerGitHubEcrPublisher`.
+5. Restrict its trust to the exact GitHub owner, repository `watchtower`,
+   and branch `main`.
+6. Attach this least-privilege permission policy, replacing the account ID:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PublishWatchtowerImage",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:CompleteLayerUpload",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart"
+      ],
+      "Resource": "arn:aws:ecr:ap-south-1:AWS_ACCOUNT_ID:repository/watchtower"
+    }
+  ]
+}
+```
+
+In GitHub, open **Settings → Secrets and variables → Actions → Variables** and
+create this repository variable:
+
+```text
+AWS_PUBLISH_ROLE_ARN=arn:aws:iam::AWS_ACCOUNT_ID:role/WatchtowerGitHubEcrPublisher
+```
+
+The role ARN is non-secret configuration. Do not create or store AWS access
+keys in GitHub.
+
+To publish, open **Actions → Publish Watchtower Image → Run workflow**. On
+success, the workflow summary displays the complete immutable ECR image URI.
+
 ## Container run
 
 This is the AWS-ready, command-based runtime. It does not schedule or keep any
