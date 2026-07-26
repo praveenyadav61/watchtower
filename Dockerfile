@@ -11,7 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN useradd --create-home --uid 10001 watchtower \
+RUN python -m unittest discover -s tests \
+    && rm -rf /app/tests /app/output /app/logs \
+    && useradd --create-home --uid 10001 watchtower \
     && mkdir -p /data/logs /data/output \
     && chmod +x /app/run_container.sh \
     && chown -R watchtower:watchtower /app /data

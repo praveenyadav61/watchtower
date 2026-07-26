@@ -1,9 +1,6 @@
 name: Publish Watchtower Image
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 concurrency:

@@ -19,7 +19,6 @@ watchlist_*.csv
 deploy
 docs
 scripts
-tests
 README.md
 setup.ps1
 setup.sh
